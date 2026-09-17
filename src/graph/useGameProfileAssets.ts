@@ -13,6 +13,13 @@ interface UseGameProfileAssetsOptions {
   enabled: boolean;
 }
 
+export function gameProfileAssetsKey(
+  objectId: string | null,
+  preferredCitizenIds: readonly string[],
+) {
+  return ["game-profile-assets", objectId, preferredCitizenIds] as const;
+}
+
 export function useGameProfileAssets({
   service,
   player,
@@ -22,7 +29,7 @@ export function useGameProfileAssets({
   const activeAssets = useRef<GameProfileAssets | null>(null);
   const pendingRelease = useRef<number | null>(null);
   const query = useQuery({
-    queryKey: ["game-profile-assets", player?.objectId ?? null, preferredCitizenIds],
+    queryKey: gameProfileAssetsKey(player?.objectId ?? null, preferredCitizenIds),
     enabled: enabled && player !== null,
     gcTime: 0,
     retry: false,

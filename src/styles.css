@@ -34,6 +34,12 @@ input {
   font: inherit;
 }
 
+@layer components {
+  .game-command {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 border border-[#48d7e8] bg-[#14292d] px-5 font-mono text-sm font-black text-white hover:bg-[#1d373c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ffbd45];
+  }
+}
+
 .app-shell {
   display: grid;
   min-height: 100vh;

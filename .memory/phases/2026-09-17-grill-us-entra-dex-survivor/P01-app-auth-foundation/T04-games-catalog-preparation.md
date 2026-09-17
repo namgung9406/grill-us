@@ -1,6 +1,6 @@
 # Task: T04 Games Catalog and Preparation
 
-## Status: pending
+## Status: done
 
 ## Goal
 인증된 Games 목록에서 `DEX Survivor` 카드를 명시적으로 시작하고, 준비 화면에서 Graph 자산을 만든 뒤에만 lazy-loaded 게임 화면으로 진입하게 한다.
@@ -68,10 +68,10 @@
 - 더블 클릭은 하나의 prepare만 생성하며 기존 AbortController를 재사용하지 않는다.
 
 ## Acceptance Criteria
-- [ ] 카드의 `게임 시작` 이전에는 Graph와 Phaser 요청이 없다.
-- [ ] 직접 URL은 자동 시작하지 않고 시작 또는 유효 저장 계속하기를 요구한다.
-- [ ] 미등록 ID는 인증된 찾을 수 없음 화면을 표시한다.
-- [ ] 준비 취소·실패·재시도에서 사진 URL과 비동기 작업이 누수되지 않는다.
+- [x] 카드의 `게임 시작` 이전에는 Graph와 Phaser 요청이 없다.
+- [x] 직접 URL은 자동 시작하지 않고 시작 또는 유효 저장 계속하기를 요구한다.
+- [x] 미등록 ID는 인증된 찾을 수 없음 화면을 표시한다.
+- [x] 준비 취소·실패·재시도에서 사진 URL과 비동기 작업이 누수되지 않는다.
 
 ## Validation
 - `npm run test -- src/games src/pages/GamePage.test.tsx` — 시작 상태기계와 경로 테스트 통과
@@ -90,6 +90,6 @@ Task: T04-games-catalog-preparation
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending

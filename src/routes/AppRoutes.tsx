@@ -2,6 +2,8 @@ import { Route, Routes } from "react-router-dom";
 
 import { ProtectedRoute } from "@/auth/ProtectedRoute";
 import { AppShell } from "@/layout/AppShell";
+import { GamePage } from "@/pages/GamePage";
+import { GamesPage } from "@/pages/GamesPage";
 import { HomePage } from "@/pages/HomePage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
@@ -20,9 +22,9 @@ export function AppRoutes() {
       <Route element={<AppShell />}>
         <Route index element={<HomePage />} />
         <Route element={<ProtectedRoute />}>
-          <Route path="games" element={<PendingPage title="게임" />} />
+          <Route path="games" element={<GamesPage />} />
           <Route path="games/leaderboard" element={<PendingPage title="리더보드" />} />
-          <Route path="games/:gameId" element={<PendingPage title="게임 준비" />} />
+          <Route path="games/:gameId" element={<GamePage />} />
         </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Route>

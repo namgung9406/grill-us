@@ -7,10 +7,10 @@
 [P01 App and Auth Foundation](./phases/2026-09-17-grill-us-entra-dex-survivor/P01-app-auth-foundation/phase.md)
 
 ## Active Task
-[T03 Graph Profile Assets](./phases/2026-09-17-grill-us-entra-dex-survivor/P01-app-auth-foundation/T03-graph-profile-assets.md)
+[T04 Games Catalog and Preparation](./phases/2026-09-17-grill-us-entra-dex-survivor/P01-app-auth-foundation/T04-games-catalog-preparation.md)
 
 ## Status
-- T02 완료, T03 구현 시작 준비 완료
+- T03 완료, T04 구현 시작 준비 완료
 
 ## Next Step (IMPORTANT)
-T03 청사진을 읽고 Graph 활성 구성원 조회와 사진 Blob URL 수명주기 구현 시작
+T04 청사진을 읽고 게임 레지스트리, 카드 시작 흐름과 준비 상태 UI 구현 시작
