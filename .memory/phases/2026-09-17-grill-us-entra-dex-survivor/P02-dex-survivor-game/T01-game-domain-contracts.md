@@ -157,4 +157,4 @@ Task: T01-game-domain-contracts
 ## Progress
 - [x] 구현 완료
 - [x] 검증 통과
-- commit: pending
+- commit: 6d045e7

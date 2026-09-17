@@ -1,6 +1,6 @@
 # Task: T02 Phaser Player Runtime
 
-## Status: pending
+## Status: done
 
 ## Goal
 1280x720 고정 아레나에서 60Hz 결정론적 simulation과 최대 120FPS 렌더링을 분리하고, 데스크톱·모바일 입력으로 플레이어 총·검·대시·스킬을 조작하며 React HUD에 typed 상태를 전달한다.
@@ -86,10 +86,10 @@
 - Strict Mode mount에서 활성 Phaser instance가 하나만 남고 unmount 후 listener와 game이 0개인지 검증한다.
 
 ## Acceptance Criteria
-- [ ] 데스크톱과 멀티터치 모바일 입력이 동일한 InputFrame 계약으로 동작한다.
-- [ ] simulation은 60Hz이며 렌더 delta 급증 시 최대 5 step 이상 따라잡지 않는다.
-- [ ] HUD는 20Hz 이하로 갱신되어도 실제 전투 상태와 cooldown을 정확히 표시한다.
-- [ ] React Strict Mode와 경로 이탈 후 Phaser 인스턴스·listener가 남지 않는다.
+- [x] 데스크톱과 멀티터치 모바일 입력이 동일한 InputFrame 계약으로 동작한다.
+- [x] simulation은 60Hz이며 렌더 delta 급증 시 최대 5 step 이상 따라잡지 않는다.
+- [x] HUD는 20Hz 이하로 갱신되어도 실제 전투 상태와 cooldown을 정확히 표시한다.
+- [x] React Strict Mode와 경로 이탈 후 Phaser 인스턴스·listener가 남지 않는다.
 
 ## Validation
 - `npm run test -- src/games/dex-survivor/runtime src/games/dex-survivor/DexSurvivorGame.test.tsx` — runtime 테스트 통과
@@ -108,6 +108,6 @@ Task: T02-phaser-player-runtime
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending

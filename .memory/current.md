@@ -7,10 +7,10 @@
 [P02 DEX Survivor Game](./phases/2026-09-17-grill-us-entra-dex-survivor/P02-dex-survivor-game/phase.md)
 
 ## Active Task
-[T01 Game Domain Contracts](./phases/2026-09-17-grill-us-entra-dex-survivor/P02-dex-survivor-game/T01-game-domain-contracts.md)
+[T02 Phaser Player Runtime](./phases/2026-09-17-grill-us-entra-dex-survivor/P02-dex-survivor-game/T02-phaser-player-runtime.md)
 
 ## Status
-- P01 완료, P02-T01 구현 시작 준비 완료
+- P02-T01 완료, T02 구현 시작 준비 완료
 
 ## Next Step (IMPORTANT)
-P02-T01 청사진을 읽고 순수 게임 도메인 타입, 상수, PRNG, 점수와 저장 스키마 구현 시작
+P02-T02 청사진을 읽고 Phaser 런타임, 플레이어 전투, 입력과 React HUD 브리지 구현 시작
