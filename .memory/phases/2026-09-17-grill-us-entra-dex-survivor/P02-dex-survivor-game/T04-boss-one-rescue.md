@@ -1,6 +1,6 @@
 # Task: T04 Boss One Rescue
 
-## Status: pending
+## Status: done
 
 ## Goal
 일반 타이머 5분에 가상 얼굴 보스와 시민별 독립 촉수를 생성하고, 실제 구성원 사진은 공격받지 않는 구출 대상으로만 표현하며 구출 수를 정확히 기록한다.
@@ -50,10 +50,10 @@
 - 촉수 파괴 즉시 구출, body 사망 시 잔여 자동 구출, 중복 event 무해, 점수·ultimate 불변을 검증한다.
 
 ## Acceptance Criteria
-- [ ] 5분에 보스 1이 등장하며 보스전 동안 normal timer가 정지한다.
-- [ ] 실제 사진은 시민에게만 표시되고 보스 얼굴은 모두 절차 생성된다.
-- [ ] 촉수마다 독립 hp와 sweep가 있으며 시민은 어떤 공격에도 피해를 받지 않는다.
-- [ ] 시민 0명에서도 보스가 정상적으로 등장·처치되고 phase가 진행된다.
+- [x] 5분에 보스 1이 등장하며 보스전 동안 normal timer가 정지한다.
+- [x] 실제 사진은 시민에게만 표시되고 보스 얼굴은 모두 절차 생성된다.
+- [x] 촉수마다 독립 hp와 sweep가 있으며 시민은 어떤 공격에도 피해를 받지 않는다.
+- [x] 시민 0명에서도 보스가 정상적으로 등장·처치되고 phase가 진행된다.
 
 ## Validation
 - `npm run test -- src/games/dex-survivor/runtime/bosses/BossOneSystem.test.ts src/games/dex-survivor/domain/rescue.test.ts` — 보스 1 규칙 통과
@@ -72,6 +72,6 @@ Task: T04-boss-one-rescue
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending

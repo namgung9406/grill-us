@@ -2,6 +2,7 @@ import Phaser from "phaser";
 
 import type { GameProfileAssets } from "@/graph/types";
 
+import { bossOneCitizenPosition, createBossOneState } from "../domain/bosses";
 import { SimulationClock } from "../domain/clock";
 import { GAME_BALANCE } from "../domain/constants";
 import { enemyRadius } from "../domain/enemies";
@@ -9,6 +10,9 @@ import { advanceTimeline } from "../domain/progression";
 import { XorShift32 } from "../domain/random";
 import type { BossSnapshot, EnemySnapshot, GameState, ProjectileSnapshot, Vector2 } from "../domain/types";
 import { derivedStats } from "../domain/upgrades";
+import { BossOneSystem } from "./bosses/BossOneSystem";
+import { BossOneView } from "./bosses/BossOneView";
+import { CitizenView } from "./entities/CitizenView";
 import { EnemyView } from "./entities/EnemyView";
 import { PlayerView } from "./entities/PlayerView";
 import type { GameBridge, GameCommand, GameViewState } from "./GameBridge";
@@ -70,12 +74,15 @@ export class GameScene extends Phaser.Scene {
   #random: XorShift32;
   #enemySystem: EnemySystem;
   #pickupSystem: PickupSystem;
+  #bossOneSystem: BossOneSystem | null = null;
   #desktopInput: DesktopInput | null = null;
   #touchInput: TouchInput | null = null;
   #playerView: PlayerView | null = null;
   readonly #enemyViews = new Map<string, EnemyView>();
   readonly #projectileViews = new Map<string, Phaser.GameObjects.Arc>();
   readonly #pickupViews = new Map<string, Phaser.GameObjects.Arc>();
+  #bossOneView: BossOneView | null = null;
+  readonly #citizenViews = new Map<string, CitizenView>();
   #unsubscribeCommands: (() => void) | null = null;
   #ownedTextureKeys: string[] = [];
   #nextEntityId = 1;
@@ -90,6 +97,7 @@ export class GameScene extends Phaser.Scene {
     this.#random = new XorShift32(this.#state.rngState);
     this.#enemySystem = this.#createEnemySystem();
     this.#pickupSystem = this.#createPickupSystem();
+    this.#ensureBossOneBattle();
   }
 
   public preload(): void {
@@ -150,6 +158,8 @@ export class GameScene extends Phaser.Scene {
       this.#nextEntityId = 1;
       this.#enemySystem = this.#createEnemySystem();
       this.#pickupSystem = this.#createPickupSystem();
+      this.#bossOneSystem = null;
+      this.#ensureBossOneBattle();
       this.#destroyRuntimeViews();
       this.#playerView?.destroy();
       this.#playerView = null;
@@ -175,7 +185,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     const targets: AimTarget[] = this.#state.enemies.map(({ id, position }) => ({ id, position }));
-    if (this.#state.boss !== null) {
+    if (this.#bossOneSystem !== null) {
+      targets.push(...this.#bossOneSystem.damageTargets.map(({ id, position }) => ({ id, position })));
+    } else if (this.#state.boss !== null) {
       targets.push({ id: `boss-${this.#state.boss.kind}`, position: this.#state.boss.position });
     }
     const input = combineInput(
@@ -187,6 +199,7 @@ export class GameScene extends Phaser.Scene {
       { ...this.#state, player: result.player, hitCount: this.#playerSystem.hitCount },
       deltaMs,
     );
+    this.#ensureBossOneBattle();
     this.#handlePlayerActions(result.actions);
 
     const enemyResult = this.#enemySystem.step(deltaMs, {
@@ -207,6 +220,8 @@ export class GameScene extends Phaser.Scene {
     for (const contact of enemyResult.contacts) {
       this.#applyPlayerDamage(contact.damage);
     }
+
+    this.#stepBossOne(deltaMs);
 
     this.#stepProjectiles(deltaMs);
     const pickupResult = this.#pickupSystem.step(deltaMs, this.#state.player);
@@ -239,6 +254,23 @@ export class GameScene extends Phaser.Scene {
 
   #createPickupSystem(): PickupSystem {
     return new PickupSystem(this.#random, this.#state.pickups, () => this.#createEntityId());
+  }
+
+  #ensureBossOneBattle(): void {
+    if (this.#state.phase !== "boss1" || this.#bossOneSystem !== null) {
+      return;
+    }
+    const unrescuedCitizenIds = this.#state.citizenUserIds.filter(
+      (citizenUserId) => !this.#state.rescuedCitizenIds.includes(citizenUserId),
+    );
+    const boss = this.#state.boss?.kind === "boss1" ? this.#state.boss : createBossOneState(unrescuedCitizenIds);
+    this.#bossOneSystem = new BossOneSystem({
+      boss,
+      activeHazards: this.#state.activeHazards,
+      rescuedCitizenIds: this.#state.rescuedCitizenIds,
+      createId: () => this.#createEntityId(),
+    });
+    this.#state = { ...this.#state, boss };
   }
 
   #createPlayerView(): void {
@@ -281,6 +313,12 @@ export class GameScene extends Phaser.Scene {
         for (const enemy of targets) {
           this.#damageEnemy(enemy.id, action.damage);
         }
+        const bossTargets = this.#bossOneSystem?.damageTargets.filter((target) =>
+          this.#isPositionInSwordArc(target.position, target.radius, action),
+        );
+        for (const target of bossTargets ?? []) {
+          this.#damageBossOne(target.id, action.damage);
+        }
         this.#showAttackRing(action.origin, action.range);
       } else if (action.type === "sword-storm") {
         const targets = this.#enemySystem.enemies.filter(
@@ -289,10 +327,20 @@ export class GameScene extends Phaser.Scene {
         for (const enemy of targets) {
           this.#damageEnemy(enemy.id, action.damage);
         }
+        const bossTargets = this.#bossOneSystem?.damageTargets.filter(
+          (target) => this.#distance(target.position, action.origin) <= action.radius + target.radius,
+        );
+        for (const target of bossTargets ?? []) {
+          this.#damageBossOne(target.id, action.damage);
+        }
         this.#showAttackRing(action.origin, action.radius);
       } else if (action.type === "ultimate") {
         for (const enemy of this.#enemySystem.enemies) {
           this.#damageEnemy(enemy.id, action.damage);
+        }
+        const bossTargetIds = this.#bossOneSystem?.damageTargets.map(({ id }) => id) ?? [];
+        for (const targetId of bossTargetIds) {
+          this.#damageBossOne(targetId, action.damage);
         }
         this.#showAttackRing(this.#state.player.position, Math.max(GAME_BALANCE.arena.width, GAME_BALANCE.arena.height));
       }
@@ -306,9 +354,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   #isInSwordArc(enemy: EnemySnapshot, action: Extract<PlayerAction, { type: "sword" }>): boolean {
-    const offset = { x: enemy.position.x - action.origin.x, y: enemy.position.y - action.origin.y };
+    return this.#isPositionInSwordArc(enemy.position, enemyRadius(enemy.type), action);
+  }
+
+  #isPositionInSwordArc(
+    position: Vector2,
+    radius: number,
+    action: Extract<PlayerAction, { type: "sword" }>,
+  ): boolean {
+    const offset = { x: position.x - action.origin.x, y: position.y - action.origin.y };
     const distance = Math.hypot(offset.x, offset.y);
-    if (distance > action.range + enemyRadius(enemy.type)) {
+    if (distance > action.range + radius) {
       return false;
     }
     if (distance === 0) {
@@ -341,6 +397,13 @@ export class GameScene extends Phaser.Scene {
           this.#damageEnemy(hit.id, next.damage);
           continue;
         }
+        const bossTarget = this.#bossOneSystem?.damageTargets.find(
+          (target) => this.#distance(next.position, target.position) <= next.radius + target.radius,
+        );
+        if (bossTarget) {
+          this.#damageBossOne(bossTarget.id, next.damage);
+          continue;
+        }
       } else if (this.#distance(next.position, this.#state.player.position) <= next.radius + 20) {
         this.#applyPlayerDamage(next.damage);
         continue;
@@ -366,6 +429,63 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  #damageBossOne(targetId: string, damage: number): void {
+    if (this.#bossOneSystem === null) {
+      return;
+    }
+    const result = this.#bossOneSystem.damageTarget(targetId, damage);
+    this.#state = {
+      ...this.#state,
+      boss: result.boss,
+      activeHazards: this.#bossOneSystem.activeHazards,
+      rescuedCitizenIds: result.rescuedCitizenIds,
+    };
+    if (result.rescuedCitizenId !== null) {
+      this.#rescueCitizenView(result.rescuedCitizenId);
+    }
+    if (result.completed) {
+      this.#completeBossOneBattle();
+    }
+  }
+
+  #stepBossOne(deltaMs: number): void {
+    if (this.#bossOneSystem === null || this.#state.phase !== "boss1") {
+      return;
+    }
+    const result = this.#bossOneSystem.step(deltaMs, this.#state.player.position);
+    this.#state = {
+      ...this.#state,
+      boss: result.boss,
+      activeHazards: result.activeHazards,
+      rescuedCitizenIds: result.rescuedCitizenIds,
+    };
+    for (const contact of result.contacts) {
+      this.#applyPlayerDamage(contact.damage);
+    }
+  }
+
+  #completeBossOneBattle(): void {
+    if (this.#bossOneSystem === null) {
+      return;
+    }
+    const rescuedCitizenIds = this.#bossOneSystem.rescuedCitizenIds;
+    for (const citizenUserId of rescuedCitizenIds) {
+      this.#rescueCitizenView(citizenUserId);
+    }
+    this.#state = {
+      ...this.#state,
+      phase: "normal",
+      currentBossElapsedMs: 0,
+      bossTimesMs: [this.#state.currentBossElapsedMs, this.#state.bossTimesMs[1], this.#state.bossTimesMs[2]],
+      boss: null,
+      activeHazards: this.#state.activeHazards.filter(({ kind }) => kind !== "boss1-sweep"),
+      rescuedCitizenIds,
+    };
+    this.#bossOneSystem = null;
+    this.#bossOneView?.destroy();
+    this.#bossOneView = null;
+  }
+
   #applyPlayerDamage(damage: number): void {
     const result = this.#playerSystem.takeDamage(damage);
     this.#state = { ...this.#state, player: result.player, hitCount: result.hitCount };
@@ -380,6 +500,7 @@ export class GameScene extends Phaser.Scene {
     this.#syncEnemyViews();
     this.#syncProjectileViews();
     this.#syncPickupViews();
+    this.#syncBossOneViews();
   }
 
   #syncEnemyViews(): void {
@@ -446,6 +567,44 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  #syncBossOneViews(): void {
+    if (this.#bossOneSystem === null || this.#state.boss?.kind !== "boss1") {
+      return;
+    }
+    if (this.#bossOneView === null) {
+      this.#bossOneView = new BossOneView(this, this.#state.boss, this.#state.seed);
+    }
+    this.#bossOneView.sync(this.#state.boss, this.#state.activeHazards);
+
+    for (const tentacle of this.#state.boss.tentacles) {
+      const citizenUserId = tentacle.citizenUserId;
+      if (citizenUserId === null) {
+        continue;
+      }
+      if (tentacle.destroyed || this.#state.rescuedCitizenIds.includes(citizenUserId)) {
+        this.#rescueCitizenView(citizenUserId);
+        continue;
+      }
+      const position = bossOneCitizenPosition(this.#state.boss, tentacle.angleRadians);
+      const existing = this.#citizenViews.get(citizenUserId);
+      if (existing) {
+        existing.sync(position);
+        continue;
+      }
+      const textureKey = profileTextureKey(citizenUserId);
+      const view = new CitizenView(this, this.textures.exists(textureKey) ? textureKey : null, position);
+      this.#citizenViews.set(citizenUserId, view);
+    }
+  }
+
+  #rescueCitizenView(citizenUserId: string): void {
+    const view = this.#citizenViews.get(citizenUserId);
+    if (!view) {
+      return;
+    }
+    view.rescue(this, () => this.#citizenViews.delete(citizenUserId));
+  }
+
   #destroyRuntimeViews(): void {
     for (const view of this.#enemyViews.values()) {
       view.destroy();
@@ -459,6 +618,12 @@ export class GameScene extends Phaser.Scene {
       view.destroy();
     }
     this.#pickupViews.clear();
+    this.#bossOneView?.destroy();
+    this.#bossOneView = null;
+    for (const view of this.#citizenViews.values()) {
+      view.destroy();
+    }
+    this.#citizenViews.clear();
   }
 
   #publishViewState(): void {
