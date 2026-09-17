@@ -14,7 +14,7 @@ import { GAME_BALANCE } from "../domain/constants";
 import { enemyRadius } from "../domain/enemies";
 import { advanceTimeline } from "../domain/progression";
 import { XorShift32 } from "../domain/random";
-import type { BossSnapshot, EnemySnapshot, GameState, ProjectileSnapshot, Vector2 } from "../domain/types";
+import type { BossSnapshot, EnemySnapshot, GameSaveV1, GameState, ProjectileSnapshot, Vector2 } from "../domain/types";
 import { derivedStats } from "../domain/upgrades";
 import { getWaveBudget, selectEnemyType } from "../domain/waves";
 import { BossOneSystem } from "./bosses/BossOneSystem";
@@ -109,6 +109,8 @@ export class GameScene extends Phaser.Scene {
   #nextEntityId = 1;
   #visibilityResetRequested = false;
   #resumeCountdownDeadlineMs: number | null = null;
+  #restoreCountdownRemainingMs: number | null = null;
+  #restoreCountdownDeadlineMs: number | null = null;
   #cleanedUp = false;
 
   public constructor(options: GameSceneOptions) {
@@ -148,6 +150,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   public override update(_time: number, deltaMs: number): void {
+    if (this.#restoreCountdownRemainingMs !== null && this.#state.phase !== "paused") {
+      this.#clock.reset();
+      this.#updateRestoreCountdown(performance.now());
+      return;
+    }
     if (this.#isResumeCountdownActive()) {
       this.#clock.reset();
       this.#updateResumeCountdown(performance.now());
@@ -169,45 +176,81 @@ export class GameScene extends Phaser.Scene {
 
   readonly #onCommand = (command: GameCommand): void => {
     if (command.type === "pause" && this.#state.phase !== "paused" && !this.#isResumeCountdownActive()) {
-      if (this.#state.phase === "defeated" || this.#state.phase === "cleared") {
-        return;
-      }
-      this.#state = { ...this.#state, phaseBeforePause: this.#state.phase, phase: "paused" };
-      this.#clock.reset();
-      this.#desktopInput?.reset();
-      this.#touchInput?.reset();
-      this.#publishViewState();
+      this.pauseForPersistence();
     } else if (command.type === "resume" && this.#state.phase === "paused") {
       this.#state = { ...this.#state, phase: this.#state.phaseBeforePause };
       this.#clock.reset();
       this.#publishViewState();
     } else if (command.type === "restart") {
-      this.#state = cloneState(this.#options.initialState);
-      this.#playerSystem.reset(this.#state.player, this.#state.hitCount);
-      this.#random = new XorShift32(this.#state.rngState);
-      this.#nextEntityId = 1;
-      this.#enemySystem = this.#createEnemySystem();
-      this.#pickupSystem = this.#createPickupSystem();
-      this.#bossOneSystem = null;
-      this.#bossTwoSystem = null;
-      this.#bossThreeSystem = null;
-      this.#finaleAddsSystem = null;
-      this.#resumeCountdownDeadlineMs = null;
-      this.#ensureBossOneBattle();
-      this.#ensureBossTwoBattle();
-      this.#ensureBossThreeBattle();
-      this.#ensureFinaleAddsBattle();
-      this.#destroyRuntimeViews();
-      this.#playerView?.destroy();
-      this.#playerView = null;
-      this.#createPlayerView();
-      this.#clock.reset();
-      this.#desktopInput?.reset();
-      this.#touchInput?.reset();
-      this.#syncViews();
-      this.#publishViewState();
+      this.importSnapshot(this.#options.initialState, false);
     }
   };
+
+  public pauseForPersistence(): void {
+    if (
+      this.#state.phase !== "paused" &&
+      this.#state.phase !== "defeated" &&
+      this.#state.phase !== "cleared"
+    ) {
+      this.#state = { ...this.#state, phaseBeforePause: this.#state.phase, phase: "paused" };
+    }
+    this.#clock.reset();
+    this.#restoreCountdownDeadlineMs = null;
+    this.#desktopInput?.reset();
+    this.#touchInput?.reset();
+    this.#publishViewState();
+  }
+
+  public exportSnapshot(): GameSaveV1 {
+    const phaseBeforePause = this.#state.phase === "paused"
+      ? this.#state.phaseBeforePause
+      : this.#state.phase === "defeated" || this.#state.phase === "cleared"
+        ? this.#state.phaseBeforePause
+        : this.#state.phase;
+    return cloneState({
+      ...this.#state,
+      savedAtEpochMs: Date.now(),
+      rngState: this.#random.state(),
+      phase: "paused",
+      phaseBeforePause,
+    });
+  }
+
+  public importSnapshot(snapshot: GameSaveV1, startCountdown = true): void {
+    if (snapshot.ownerObjectId !== this.#options.initialState.ownerObjectId) {
+      return;
+    }
+
+    const imported = cloneState(snapshot);
+    this.#state = startCountdown
+      ? { ...imported, phase: imported.phaseBeforePause }
+      : imported;
+    this.#playerSystem.reset(this.#state.player, this.#state.hitCount);
+    this.#random = new XorShift32(this.#state.rngState);
+    this.#nextEntityId = 1;
+    this.#enemySystem = this.#createEnemySystem();
+    this.#pickupSystem = this.#createPickupSystem();
+    this.#bossOneSystem = null;
+    this.#bossTwoSystem = null;
+    this.#bossThreeSystem = null;
+    this.#finaleAddsSystem = null;
+    this.#resumeCountdownDeadlineMs = null;
+    this.#restoreCountdownRemainingMs = startCountdown ? 3000 : null;
+    this.#restoreCountdownDeadlineMs = null;
+    this.#ensureBossOneBattle();
+    this.#ensureBossTwoBattle();
+    this.#ensureBossThreeBattle();
+    this.#ensureFinaleAddsBattle();
+    this.#destroyRuntimeViews();
+    this.#playerView?.destroy();
+    this.#playerView = null;
+    this.#createPlayerView();
+    this.#clock.reset();
+    this.#desktopInput?.reset();
+    this.#touchInput?.reset();
+    this.#syncViews();
+    this.#publishViewState();
+  }
 
   readonly #onVisibilityChange = (): void => {
     this.#desktopInput?.reset();
@@ -852,6 +895,22 @@ export class GameScene extends Phaser.Scene {
     this.#publishViewState();
   }
 
+  #updateRestoreCountdown(nowMs: number): void {
+    if (this.#restoreCountdownRemainingMs === null) {
+      return;
+    }
+    this.#restoreCountdownDeadlineMs ??= nowMs + this.#restoreCountdownRemainingMs;
+    this.#restoreCountdownRemainingMs = resumeCountdownRemaining(this.#restoreCountdownDeadlineMs, nowMs);
+    if (this.#restoreCountdownRemainingMs === 0) {
+      this.#restoreCountdownRemainingMs = null;
+      this.#restoreCountdownDeadlineMs = null;
+      this.#desktopInput?.reset();
+      this.#touchInput?.reset();
+      this.#clock.reset();
+    }
+    this.#publishViewState();
+  }
+
   #completeBossThreeBattle(): void {
     this.#state = {
       ...this.#state,
@@ -1066,9 +1125,11 @@ export class GameScene extends Phaser.Scene {
       phase: this.#state.phase,
       bossHp: health.hp,
       bossMaxHp: health.maxHp,
-      resumeCountdownMs: this.#isResumeCountdownActive() && this.#state.boss?.kind === "boss3"
-        ? this.#state.boss.resumeCountdownMs
-        : null,
+      resumeCountdownMs: this.#restoreCountdownRemainingMs ?? (
+        this.#isResumeCountdownActive() && this.#state.boss?.kind === "boss3"
+          ? this.#state.boss.resumeCountdownMs
+          : null
+      ),
     };
     this.#options.bridge.publish(viewState);
   }

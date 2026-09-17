@@ -1,6 +1,6 @@
 # Task: T07 Save Resume and Results
 
-## Status: pending
+## Status: done
 
 ## Goal
 게임의 전체 전투 snapshot을 계정별로 500ms마다 안전하게 저장하고 화면 이탈·복귀·재시작·사망·클리어를 손실 없이 처리하여 리더보드가 소비할 완결 결과를 남긴다.
@@ -74,6 +74,7 @@
   - `src/games/dex-survivor/persistence/AutoSaveController.test.ts` :: 500ms/flush/dirty; new
   - `src/games/dex-survivor/persistence/PendingResultStore.test.ts` :: idempotency/retention; new
   - `src/games/dex-survivor/DexSurvivorGame.test.tsx` :: resume/restart/end; modify
+  - `src/pages/GamePage.test.tsx` :: complete V1 resume fixture; modify
 
 #### Details
 - 500ms 이전 중복 write 없음, pagehide 즉시 flush, exact snapshot roundtrip과 PRNG 다음 값 일치를 검증한다.
@@ -81,10 +82,10 @@
 - pending append 전 active save 유지, append 성공 후 삭제, exit 결과 미생성을 검증한다.
 
 ## Acceptance Criteria
-- [ ] 500ms autosave와 이탈 즉시 flush로 플레이어·적·탄환·pickup·보스·PRNG가 복원된다.
-- [ ] 같은 object ID만 계속하기 가능하고 다른 계정 저장은 유지된 채 보이지 않는다.
-- [ ] 사망·클리어만 pending result를 만들고 중도 이탈·재시작은 제출 결과를 만들지 않는다.
-- [ ] 저장 실패가 진행 손실을 숨기지 않고 사용자에게 표시된다.
+- [x] 500ms autosave와 이탈 즉시 flush로 플레이어·적·탄환·pickup·보스·PRNG가 복원된다.
+- [x] 같은 object ID만 계속하기 가능하고 다른 계정 저장은 유지된 채 보이지 않는다.
+- [x] 사망·클리어만 pending result를 만들고 중도 이탈·재시작은 제출 결과를 만들지 않는다.
+- [x] 저장 실패가 진행 손실을 숨기지 않고 사용자에게 표시된다.
 
 ## Validation
 - `npm run test -- src/games/dex-survivor/persistence src/games/dex-survivor/DexSurvivorGame.test.tsx` — 저장 lifecycle 통과
@@ -103,6 +104,6 @@ Task: T07-save-resume-results
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending

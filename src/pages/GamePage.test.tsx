@@ -5,8 +5,15 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthContextValue } from "@/auth/types";
+import type { GameSaveV1 } from "@/games/dex-survivor/domain/types";
+import { saveKey } from "@/games/dex-survivor/persistence/keys";
 
 const loadGame = vi.fn();
+const OWNER_ID = "00000000-0000-4000-8000-000000000001";
+const CITIZEN_IDS = [
+  "00000000-0000-4000-8000-000000000002",
+  "00000000-0000-4000-8000-000000000003",
+] as const;
 interface MockProfileQuery {
   data: undefined;
   isError: boolean;
@@ -16,6 +23,52 @@ interface MockProfileQuery {
 
 const useGameProfileAssets = vi.fn<(options: unknown) => MockProfileQuery>();
 let authValue: AuthContextValue;
+
+function createSavedRun(): GameSaveV1 {
+  return {
+    version: 1,
+    gameId: "dex-survivor",
+    ownerObjectId: OWNER_ID,
+    savedAtEpochMs: 1_800_000_000_000,
+    sessionId: "00000000-0000-4000-8000-000000000001",
+    seed: 1234,
+    rngState: 1234,
+    phase: "paused",
+    phaseBeforePause: "normal",
+    normalElapsedMs: 60_000,
+    currentBossElapsedMs: 0,
+    citizenUserIds: CITIZEN_IDS,
+    rescuedCitizenIds: [],
+    enemyKills: 0,
+    hitCount: 0,
+    bossTimesMs: [null, null, null],
+    player: {
+      position: { x: 640, y: 360 },
+      velocity: { x: 0, y: 0 },
+      hp: 100,
+      maxHp: 100,
+      facingRadians: 0,
+      dashCharges: 1,
+      dashRecoveryRemainingMs: [],
+      dashRemainingMs: 0,
+      invulnerableRemainingMs: 0,
+      gunCooldownMs: 0,
+      swordCooldownMs: 0,
+      swordActiveRemainingMs: 0,
+      swordStormCooldownMs: 0,
+      swordStormActiveRemainingMs: 0,
+      ultimateCharge: 0,
+      ultimateChargeTickRemainderMs: 0,
+      upgrades: { gunDamage: 0, gunRange: 0, swordPower: 0, dashCapacity: 0, dashRecovery: 0 },
+    },
+    wave: { spawnCooldownMs: 0, tier: 2 },
+    activeHazards: [],
+    enemies: [],
+    projectiles: [],
+    pickups: [],
+    boss: null,
+  };
+}
 
 vi.mock("@/auth/AuthProvider", () => ({ useAuth: () => authValue }));
 vi.mock("@/games/registry", () => ({
@@ -68,7 +121,7 @@ describe("GamePage", () => {
     });
     authValue = {
       status: "authenticated",
-      user: { objectId: "owner", displayName: "플레이어", email: "player@example.com" },
+      user: { objectId: OWNER_ID, displayName: "플레이어", email: "player@example.com" },
       errorMessage: null,
       login: vi.fn(),
       logout: vi.fn(),
@@ -101,20 +154,15 @@ describe("GamePage", () => {
 
   it("유효한 동일 계정 저장이 있으면 계속하기를 표시한다", async () => {
     localStorage.setItem(
-      "grill-us:dex-survivor:save:v1:owner",
-      JSON.stringify({
-        version: 1,
-        gameId: "dex-survivor",
-        ownerObjectId: "owner",
-        citizenUserIds: ["citizen-2", "citizen-1"],
-      }),
+      saveKey(OWNER_ID),
+      JSON.stringify(createSavedRun()),
     );
     const user = userEvent.setup();
     renderPage("/games/dex-survivor");
 
     await user.click(screen.getByRole("button", { name: "계속하기" }));
     expect(useGameProfileAssets).toHaveBeenLastCalledWith(
-      expect.objectContaining({ preferredCitizenIds: ["citizen-2", "citizen-1"], enabled: true }),
+      expect.objectContaining({ preferredCitizenIds: CITIZEN_IDS, enabled: true }),
     );
   });
 

@@ -1,11 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import type { GameLaunchProps } from "../types";
 import { GAME_BALANCE } from "./domain/constants";
-import type { GameState } from "./domain/types";
+import { createRunResult } from "./domain/score";
+import type { GameSaveV1, GameState, RunOutcome, RunResult } from "./domain/types";
+import { AutoSaveController } from "./persistence/AutoSaveController";
+import { GameSaveStore } from "./persistence/GameSaveStore";
+import { PendingResultStore } from "./persistence/PendingResultStore";
 import { createDexSurvivorGame } from "./runtime/createGame";
 import { GameBridge, type GameViewState } from "./runtime/GameBridge";
+import type { GameScene } from "./runtime/GameScene";
 import { GameHud } from "./ui/GameHud";
+import { PauseOverlay } from "./ui/PauseOverlay";
+import { RestartDialog } from "./ui/RestartDialog";
+import { ResultScreen } from "./ui/ResultScreen";
 import { TouchControls } from "./ui/TouchControls";
 
 function hashSeed(value: string): number {
@@ -18,13 +26,14 @@ function hashSeed(value: string): number {
 }
 
 function createInitialState(ownerObjectId: string, citizenUserIds: readonly string[]): GameState {
-  const seed = hashSeed(`${ownerObjectId}:${Date.now()}`) || 0x6d2b79f5;
+  const sessionId = crypto.randomUUID();
+  const seed = hashSeed(`${ownerObjectId}:${sessionId}`) || 0x6d2b79f5;
   return {
     version: 1,
     gameId: "dex-survivor",
     ownerObjectId,
     savedAtEpochMs: Date.now(),
-    sessionId: crypto.randomUUID(),
+    sessionId,
     seed,
     rngState: seed,
     phase: "normal",
@@ -64,6 +73,19 @@ function createInitialState(ownerObjectId: string, citizenUserIds: readonly stri
   };
 }
 
+interface ResultPresentation {
+  result: RunResult;
+  rescuedCount: number;
+  pendingSaved: boolean;
+}
+
+function totalActiveMs(snapshot: GameSaveV1): number {
+  return snapshot.normalElapsedMs + snapshot.currentBossElapsedMs + snapshot.bossTimesMs.reduce<number>(
+    (total, bossTimeMs) => total + (bossTimeMs ?? 0),
+    0,
+  );
+}
+
 function createInitialViewState(state: GameState): GameViewState {
   return {
     hp: state.player.hp,
@@ -82,10 +104,30 @@ function createInitialViewState(state: GameState): GameViewState {
 
 export default function DexSurvivorGame({ profileAssets, ownerObjectId, onExit }: GameLaunchProps) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const [{ initialState, bridge }] = useState(() => {
-    const state = createInitialState(ownerObjectId, profileAssets.citizens.map(({ userId }) => userId));
-    return { initialState: state, bridge: new GameBridge(createInitialViewState(state)) };
+  const sceneRef = useRef<GameScene | null>(null);
+  const autoSaveRef = useRef<AutoSaveController | null>(null);
+  const completedSessionRef = useRef<string | null>(null);
+  const [{ saveStore, pendingResultStore }] = useState(() => ({
+    saveStore: new GameSaveStore(),
+    pendingResultStore: new PendingResultStore(),
+  }));
+  const [launch, setLaunch] = useState(() => {
+    const savedSnapshot = saveStore.read(ownerObjectId);
+    const state = savedSnapshot ?? createInitialState(ownerObjectId, profileAssets.citizens.map(({ userId }) => userId));
+    return {
+      initialState: state,
+      resumeSnapshot: savedSnapshot,
+      bridge: new GameBridge(createInitialViewState(state)),
+    };
   });
+  const [saveWarning, setSaveWarning] = useState(false);
+  const [restartOpen, setRestartOpen] = useState(false);
+  const [resultPresentation, setResultPresentation] = useState<ResultPresentation | null>(null);
+  const viewState = useSyncExternalStore(
+    launch.bridge.subscribe,
+    launch.bridge.getSnapshot,
+    launch.bridge.getSnapshot,
+  );
 
   useEffect(() => {
     const parent = mountRef.current;
@@ -93,15 +135,152 @@ export default function DexSurvivorGame({ profileAssets, ownerObjectId, onExit }
       return;
     }
 
-    const game = createDexSurvivorGame({ parent, initialState, assets: profileAssets, bridge });
+    const game = createDexSurvivorGame({
+      parent,
+      initialState: launch.initialState,
+      assets: profileAssets,
+      bridge: launch.bridge,
+    });
+    const scene = game.scene.getScene("DexSurvivorGameScene") as GameScene;
+    sceneRef.current = scene;
+    const autoSave = new AutoSaveController({
+      exportSnapshot: () => scene.exportSnapshot(),
+      write: (snapshot) => saveStore.write(snapshot),
+      onResult: (result) => {
+        if (!result.ok) {
+          setSaveWarning(true);
+        }
+      },
+    });
+    autoSaveRef.current = autoSave;
+
+    const completeRun = (outcome: RunOutcome): void => {
+      const snapshot = scene.exportSnapshot();
+      if (completedSessionRef.current === snapshot.sessionId) {
+        return;
+      }
+      completedSessionRef.current = snapshot.sessionId;
+      autoSave.dispose(false);
+      const result = createRunResult({
+        resultId: crypto.randomUUID(),
+        ownerObjectId,
+        outcome,
+        normalElapsedMs: snapshot.normalElapsedMs,
+        totalActiveMs: totalActiveMs(snapshot),
+        enemyKills: snapshot.enemyKills,
+        hitCount: snapshot.hitCount,
+        bossTimesMs: snapshot.bossTimesMs,
+        completedAtEpochMs: Date.now(),
+      });
+      const appended = pendingResultStore.append(result);
+      if (appended.ok) {
+        saveStore.remove(ownerObjectId);
+      }
+      setResultPresentation({
+        result,
+        rescuedCount: snapshot.rescuedCitizenIds.length,
+        pendingSaved: appended.ok,
+      });
+    };
+
+    const onSceneState = (): void => {
+      const snapshot = launch.bridge.getSnapshot();
+      if (snapshot.phase === "defeated" || snapshot.phase === "cleared") {
+        completeRun(snapshot.phase);
+      } else if (snapshot.phase !== "paused") {
+        autoSave.markDirty();
+      }
+    };
+    const unsubscribe = launch.bridge.subscribe(onSceneState);
+    if (launch.initialState.phase !== "paused") {
+      autoSave.markDirty();
+    }
+
+    const pauseAndFlush = (): void => {
+      const phase = launch.bridge.getSnapshot().phase;
+      if (phase === "defeated" || phase === "cleared") {
+        return;
+      }
+      scene.pauseForPersistence();
+      autoSave.markDirty();
+      autoSave.flush();
+    };
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState === "hidden") {
+        pauseAndFlush();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", pauseAndFlush);
+    window.addEventListener("beforeunload", pauseAndFlush);
+
     let destroyed = false;
     return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", pauseAndFlush);
+      window.removeEventListener("beforeunload", pauseAndFlush);
+      unsubscribe();
+      pauseAndFlush();
+      autoSave.dispose(false);
+      if (autoSaveRef.current === autoSave) {
+        autoSaveRef.current = null;
+      }
+      if (sceneRef.current === scene) {
+        sceneRef.current = null;
+      }
       if (!destroyed) {
         destroyed = true;
         game.destroy(true);
       }
     };
-  }, [bridge, initialState, profileAssets]);
+  }, [launch.bridge, launch.initialState, ownerObjectId, pendingResultStore, profileAssets, saveStore]);
+
+  const continueGame = (): void => {
+    if (launch.resumeSnapshot !== null) {
+      sceneRef.current?.importSnapshot(launch.resumeSnapshot, true);
+      setLaunch((current) => ({ ...current, resumeSnapshot: null }));
+      autoSaveRef.current?.markDirty();
+      return;
+    }
+    launch.bridge.dispatch({ type: "resume" });
+  };
+
+  const exitGame = (): void => {
+    const scene = sceneRef.current;
+    const autoSave = autoSaveRef.current;
+    if (scene !== null && autoSave !== null && resultPresentation === null) {
+      scene.pauseForPersistence();
+      autoSave.markDirty();
+      autoSave.flush();
+    }
+    onExit();
+  };
+
+  const restartGame = (): void => {
+    autoSaveRef.current?.dispose(false);
+    saveStore.remove(ownerObjectId);
+    completedSessionRef.current = null;
+    setSaveWarning(false);
+    setResultPresentation(null);
+    setRestartOpen(false);
+    const state = createInitialState(ownerObjectId, profileAssets.citizens.map(({ userId }) => userId));
+    setLaunch({
+      initialState: state,
+      resumeSnapshot: null,
+      bridge: new GameBridge(createInitialViewState(state)),
+    });
+  };
+
+  const retryResultSave = (): void => {
+    if (resultPresentation === null) {
+      return;
+    }
+    const appended = pendingResultStore.append(resultPresentation.result);
+    if (appended.ok) {
+      saveStore.remove(ownerObjectId);
+      setResultPresentation({ ...resultPresentation, pendingSaved: true });
+    }
+  };
 
   return (
     <section
@@ -109,8 +288,31 @@ export default function DexSurvivorGame({ profileAssets, ownerObjectId, onExit }
       aria-label="DEX Survivor 게임"
     >
       <div ref={mountRef} className="absolute inset-0" />
-      <GameHud bridge={bridge} onExit={onExit} />
+      <GameHud bridge={launch.bridge} onExit={exitGame} />
       <TouchControls />
+      {saveWarning && viewState.phase !== "paused" && resultPresentation === null ? (
+        <p className="absolute bottom-4 left-1/2 z-30 -translate-x-1/2 border border-[#ff5d62] bg-[#2a1c20] px-4 py-3 text-sm text-[#ffd8d9]" role="alert">
+          진행 상황을 저장하지 못했습니다.
+        </p>
+      ) : null}
+      {viewState.phase === "paused" && resultPresentation === null ? (
+        <PauseOverlay
+          saveWarning={saveWarning}
+          onContinue={continueGame}
+          onRestart={() => setRestartOpen(true)}
+          onExit={exitGame}
+        />
+      ) : null}
+      {restartOpen ? <RestartDialog onConfirm={restartGame} onCancel={() => setRestartOpen(false)} /> : null}
+      {resultPresentation !== null ? (
+        <ResultScreen
+          result={resultPresentation.result}
+          rescuedCount={resultPresentation.rescuedCount}
+          pendingSaved={resultPresentation.pendingSaved}
+          onRetry={retryResultSave}
+          onExit={onExit}
+        />
+      ) : null}
     </section>
   );
 }
