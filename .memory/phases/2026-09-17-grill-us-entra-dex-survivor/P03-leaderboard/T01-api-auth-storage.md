@@ -1,6 +1,6 @@
 # Task: T01 API Auth and Storage
 
-## Status: pending
+## Status: done
 
 ## Goal
 개발 전용 Express 서버가 명시적으로 활성화된 경우에만 리더보드 route를 노출하고, Entra 커스텀 API 토큰에서 사용자 신원을 검증한 뒤 SQLite에 안전하게 접근할 기반을 만든다.
@@ -92,10 +92,10 @@
 - production leaderboard enabled 및 production bypass 거부, non-test rate limit override 거부, disabled 시 DB/JWKS 미생성, migration idempotency를 검증한다.
 
 ## Acceptance Criteria
-- [ ] Graph audience 토큰과 잘못된 tenant/scope 토큰이 거부된다.
-- [ ] production에서 leaderboard 또는 dev bypass를 활성화할 수 없다.
-- [ ] leaderboard disabled는 route·DB·JWKS side effect를 만들지 않는다.
-- [ ] SQLite schema와 정렬 index가 transaction으로 한 번만 생성된다.
+- [x] Graph audience 토큰과 잘못된 tenant/scope 토큰이 거부된다.
+- [x] production에서 leaderboard 또는 dev bypass를 활성화할 수 없다.
+- [x] leaderboard disabled는 route·DB·JWKS side effect를 만들지 않는다.
+- [x] SQLite schema와 정렬 index가 transaction으로 한 번만 생성된다.
 
 ## Validation
 - `npm run test -- server/env.test.ts server/auth server/db/migrate.test.ts` — 서버 경계 테스트 통과
@@ -114,6 +114,6 @@ Task: T01-api-auth-storage
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending
