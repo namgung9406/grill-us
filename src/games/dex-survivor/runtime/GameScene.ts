@@ -2,7 +2,7 @@ import Phaser from "phaser";
 
 import type { GameProfileAssets } from "@/graph/types";
 
-import { bossOneCitizenPosition, createBossOneState } from "../domain/bosses";
+import { activeBossTwoParts, bossOneCitizenPosition, createBossOneState, createBossTwoState } from "../domain/bosses";
 import { SimulationClock } from "../domain/clock";
 import { GAME_BALANCE } from "../domain/constants";
 import { enemyRadius } from "../domain/enemies";
@@ -10,8 +10,11 @@ import { advanceTimeline } from "../domain/progression";
 import { XorShift32 } from "../domain/random";
 import type { BossSnapshot, EnemySnapshot, GameState, ProjectileSnapshot, Vector2 } from "../domain/types";
 import { derivedStats } from "../domain/upgrades";
+import { getWaveBudget, selectEnemyType } from "../domain/waves";
 import { BossOneSystem } from "./bosses/BossOneSystem";
 import { BossOneView } from "./bosses/BossOneView";
+import { BossTwoSystem } from "./bosses/BossTwoSystem";
+import { BossTwoView } from "./bosses/BossTwoView";
 import { CitizenView } from "./entities/CitizenView";
 import { EnemyView } from "./entities/EnemyView";
 import { PlayerView } from "./entities/PlayerView";
@@ -61,7 +64,11 @@ function bossHealth(boss: BossSnapshot | null): { hp: number | null; maxHp: numb
     return { hp: boss.hp, maxHp: GAME_BALANCE.bosses.bossOne.hp };
   }
   if (boss.kind === "boss2") {
-    return { hp: boss.parts.core.hp, maxHp: GAME_BALANCE.bosses.bossTwo.partHp.core };
+    const activeParts = activeBossTwoParts(boss);
+    return {
+      hp: activeParts.reduce((total, part) => total + boss.parts[part].hp, 0),
+      maxHp: activeParts.reduce((total, part) => total + GAME_BALANCE.bosses.bossTwo.partHp[part], 0),
+    };
   }
   return { hp: boss.hp, maxHp: GAME_BALANCE.bosses.bossThree.hp };
 }
@@ -75,6 +82,7 @@ export class GameScene extends Phaser.Scene {
   #enemySystem: EnemySystem;
   #pickupSystem: PickupSystem;
   #bossOneSystem: BossOneSystem | null = null;
+  #bossTwoSystem: BossTwoSystem | null = null;
   #desktopInput: DesktopInput | null = null;
   #touchInput: TouchInput | null = null;
   #playerView: PlayerView | null = null;
@@ -82,6 +90,7 @@ export class GameScene extends Phaser.Scene {
   readonly #projectileViews = new Map<string, Phaser.GameObjects.Arc>();
   readonly #pickupViews = new Map<string, Phaser.GameObjects.Arc>();
   #bossOneView: BossOneView | null = null;
+  #bossTwoView: BossTwoView | null = null;
   readonly #citizenViews = new Map<string, CitizenView>();
   #unsubscribeCommands: (() => void) | null = null;
   #ownedTextureKeys: string[] = [];
@@ -98,6 +107,7 @@ export class GameScene extends Phaser.Scene {
     this.#enemySystem = this.#createEnemySystem();
     this.#pickupSystem = this.#createPickupSystem();
     this.#ensureBossOneBattle();
+    this.#ensureBossTwoBattle();
   }
 
   public preload(): void {
@@ -159,7 +169,9 @@ export class GameScene extends Phaser.Scene {
       this.#enemySystem = this.#createEnemySystem();
       this.#pickupSystem = this.#createPickupSystem();
       this.#bossOneSystem = null;
+      this.#bossTwoSystem = null;
       this.#ensureBossOneBattle();
+      this.#ensureBossTwoBattle();
       this.#destroyRuntimeViews();
       this.#playerView?.destroy();
       this.#playerView = null;
@@ -187,6 +199,12 @@ export class GameScene extends Phaser.Scene {
     const targets: AimTarget[] = this.#state.enemies.map(({ id, position }) => ({ id, position }));
     if (this.#bossOneSystem !== null) {
       targets.push(...this.#bossOneSystem.damageTargets.map(({ id, position }) => ({ id, position })));
+    } else if (this.#bossTwoSystem !== null) {
+      targets.push(
+        ...this.#bossTwoSystem.damageTargets
+          .filter(({ active }) => active)
+          .map(({ id, position }) => ({ id, position })),
+      );
     } else if (this.#state.boss !== null) {
       targets.push({ id: `boss-${this.#state.boss.kind}`, position: this.#state.boss.position });
     }
@@ -200,6 +218,7 @@ export class GameScene extends Phaser.Scene {
       deltaMs,
     );
     this.#ensureBossOneBattle();
+    this.#ensureBossTwoBattle();
     this.#handlePlayerActions(result.actions);
 
     const enemyResult = this.#enemySystem.step(deltaMs, {
@@ -222,6 +241,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.#stepBossOne(deltaMs);
+  this.#stepBossTwo(deltaMs);
 
     this.#stepProjectiles(deltaMs);
     const pickupResult = this.#pickupSystem.step(deltaMs, this.#state.player);
@@ -273,6 +293,19 @@ export class GameScene extends Phaser.Scene {
     this.#state = { ...this.#state, boss };
   }
 
+  #ensureBossTwoBattle(): void {
+    if (this.#state.phase !== "boss2" || this.#bossTwoSystem !== null) {
+      return;
+    }
+    const boss = this.#state.boss?.kind === "boss2" ? this.#state.boss : createBossTwoState();
+    this.#bossTwoSystem = new BossTwoSystem({
+      boss,
+      activeHazards: this.#state.activeHazards,
+      createId: () => this.#createEntityId(),
+    });
+    this.#state = { ...this.#state, boss };
+  }
+
   #createPlayerView(): void {
     const profileKey = profileTextureKey(this.#options.assets.player.userId);
     const playerTexture = this.textures.exists(profileKey) ? profileKey : PROCEDURAL_TEXTURE_KEYS.player;
@@ -319,6 +352,13 @@ export class GameScene extends Phaser.Scene {
         for (const target of bossTargets ?? []) {
           this.#damageBossOne(target.id, action.damage);
         }
+        const bossTwoTargets = this.#bossTwoSystem?.damageTargets.filter(
+          (target) =>
+            target.active && this.#isPositionInSwordArc(target.position, target.radius, action),
+        );
+        for (const target of bossTwoTargets ?? []) {
+          this.#damageBossTwo(target.id, action.damage);
+        }
         this.#showAttackRing(action.origin, action.range);
       } else if (action.type === "sword-storm") {
         const targets = this.#enemySystem.enemies.filter(
@@ -333,6 +373,13 @@ export class GameScene extends Phaser.Scene {
         for (const target of bossTargets ?? []) {
           this.#damageBossOne(target.id, action.damage);
         }
+        const bossTwoTargets = this.#bossTwoSystem?.damageTargets.filter(
+          (target) =>
+            target.active && this.#distance(target.position, action.origin) <= action.radius + target.radius,
+        );
+        for (const target of bossTwoTargets ?? []) {
+          this.#damageBossTwo(target.id, action.damage);
+        }
         this.#showAttackRing(action.origin, action.radius);
       } else if (action.type === "ultimate") {
         for (const enemy of this.#enemySystem.enemies) {
@@ -341,6 +388,11 @@ export class GameScene extends Phaser.Scene {
         const bossTargetIds = this.#bossOneSystem?.damageTargets.map(({ id }) => id) ?? [];
         for (const targetId of bossTargetIds) {
           this.#damageBossOne(targetId, action.damage);
+        }
+        const bossTwoTargetIds =
+          this.#bossTwoSystem?.damageTargets.filter(({ active }) => active).map(({ id }) => id) ?? [];
+        for (const targetId of bossTwoTargetIds) {
+          this.#damageBossTwo(targetId, action.damage);
         }
         this.#showAttackRing(this.#state.player.position, Math.max(GAME_BALANCE.arena.width, GAME_BALANCE.arena.height));
       }
@@ -404,6 +456,11 @@ export class GameScene extends Phaser.Scene {
           this.#damageBossOne(bossTarget.id, next.damage);
           continue;
         }
+        const bossTwoTarget = this.#bossTwoSystem?.projectileTarget(next.position, next.radius);
+        if (bossTwoTarget) {
+          this.#damageBossTwo(bossTwoTarget.id, next.damage);
+          continue;
+        }
       } else if (this.#distance(next.position, this.#state.player.position) <= next.radius + 20) {
         this.#applyPlayerDamage(next.damage);
         continue;
@@ -448,6 +505,24 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  #damageBossTwo(targetId: string, damage: number): void {
+    if (this.#bossTwoSystem === null) {
+      return;
+    }
+    const result = this.#bossTwoSystem.damageTarget(targetId, damage);
+    this.#state = {
+      ...this.#state,
+      boss: result.boss,
+      activeHazards: this.#bossTwoSystem.activeHazards,
+    };
+    if (result.blocked && result.targetPart !== null) {
+      this.#bossTwoView?.showBlocked(result.targetPart);
+    }
+    if (result.completed) {
+      this.#completeBossTwoBattle();
+    }
+  }
+
   #stepBossOne(deltaMs: number): void {
     if (this.#bossOneSystem === null || this.#state.phase !== "boss1") {
       return;
@@ -458,6 +533,30 @@ export class GameScene extends Phaser.Scene {
       boss: result.boss,
       activeHazards: result.activeHazards,
       rescuedCitizenIds: result.rescuedCitizenIds,
+    };
+    for (const contact of result.contacts) {
+      this.#applyPlayerDamage(contact.damage);
+    }
+  }
+
+  #stepBossTwo(deltaMs: number): void {
+    if (this.#bossTwoSystem === null || this.#state.phase !== "boss2") {
+      return;
+    }
+    const result = this.#bossTwoSystem.step(deltaMs, this.#state.player.position);
+    const waveTier = getWaveBudget(this.#state.normalElapsedMs).tier;
+    for (const summon of result.summons) {
+      this.#enemySystem.spawnSummoned(
+        selectEnemyType(waveTier, this.#random),
+        summon.position,
+        this.#state.normalElapsedMs,
+      );
+    }
+    this.#state = {
+      ...this.#state,
+      boss: result.boss,
+      activeHazards: result.activeHazards,
+      enemies: this.#enemySystem.enemies,
     };
     for (const contact of result.contacts) {
       this.#applyPlayerDamage(contact.damage);
@@ -486,6 +585,25 @@ export class GameScene extends Phaser.Scene {
     this.#bossOneView = null;
   }
 
+  #completeBossTwoBattle(): void {
+    if (this.#bossTwoSystem === null) {
+      return;
+    }
+    this.#state = {
+      ...this.#state,
+      phase: "normal",
+      currentBossElapsedMs: 0,
+      bossTimesMs: [this.#state.bossTimesMs[0], this.#state.currentBossElapsedMs, this.#state.bossTimesMs[2]],
+      boss: null,
+      activeHazards: this.#state.activeHazards.filter(
+        ({ kind }) => kind !== "boss2-mace" && kind !== "boss2-shockwave",
+      ),
+    };
+    this.#bossTwoSystem = null;
+    this.#bossTwoView?.destroy();
+    this.#bossTwoView = null;
+  }
+
   #applyPlayerDamage(damage: number): void {
     const result = this.#playerSystem.takeDamage(damage);
     this.#state = { ...this.#state, player: result.player, hitCount: result.hitCount };
@@ -501,6 +619,7 @@ export class GameScene extends Phaser.Scene {
     this.#syncProjectileViews();
     this.#syncPickupViews();
     this.#syncBossOneViews();
+    this.#syncBossTwoViews();
   }
 
   #syncEnemyViews(): void {
@@ -597,6 +716,16 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  #syncBossTwoViews(): void {
+    if (this.#bossTwoSystem === null || this.#state.boss?.kind !== "boss2") {
+      return;
+    }
+    if (this.#bossTwoView === null) {
+      this.#bossTwoView = new BossTwoView(this, this.#state.boss);
+    }
+    this.#bossTwoView.sync(this.#state.boss, this.#state.activeHazards);
+  }
+
   #rescueCitizenView(citizenUserId: string): void {
     const view = this.#citizenViews.get(citizenUserId);
     if (!view) {
@@ -620,6 +749,8 @@ export class GameScene extends Phaser.Scene {
     this.#pickupViews.clear();
     this.#bossOneView?.destroy();
     this.#bossOneView = null;
+    this.#bossTwoView?.destroy();
+    this.#bossTwoView = null;
     for (const view of this.#citizenViews.values()) {
       view.destroy();
     }

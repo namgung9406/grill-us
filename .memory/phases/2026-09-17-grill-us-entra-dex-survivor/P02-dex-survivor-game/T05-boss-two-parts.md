@@ -1,6 +1,6 @@
 # Task: T05 Boss Two Parts
 
-## Status: pending
+## Status: done
 
 ## Goal
 일반 타이머 10분에 `동그라미 재단`이 표시된 건물형 로봇을 생성하고 방패, 철퇴 팔, 양쪽 다리, 가슴 코어의 강제 순서에 따라 공격·이동 능력이 약화되는 전투를 구현한다.
@@ -49,10 +49,10 @@
 - 저장 snapshot에서 각 stage와 cooldown을 복원했을 때 다음 attack timing이 동일함을 검증한다.
 
 ## Acceptance Criteria
-- [ ] 보스 2는 지정 순서 밖의 damage를 거부하고 활성 부위를 명확히 표시한다.
-- [ ] 부위 파괴가 철퇴 공격, 이동 속도와 core 노출을 정확히 변경한다.
-- [ ] `동그라미 재단` 문구가 desktop/mobile에서 보스 가슴 중앙에 읽힌다.
-- [ ] 10분 보스 처치 후 시간이 기록되고 normal timer가 재개된다.
+- [x] 보스 2는 지정 순서 밖의 damage를 거부하고 활성 부위를 명확히 표시한다.
+- [x] 부위 파괴가 철퇴 공격, 이동 속도와 core 노출을 정확히 변경한다.
+- [x] `동그라미 재단` 문구가 desktop/mobile에서 보스 가슴 중앙에 읽힌다.
+- [x] 10분 보스 처치 후 시간이 기록되고 normal timer가 재개된다.
 
 ## Validation
 - `npm run test -- src/games/dex-survivor/runtime/bosses/BossTwoSystem.test.ts src/games/dex-survivor/domain/bosses.test.ts` — 보스 2 상태기계 통과
@@ -71,6 +71,6 @@ Task: T05-boss-two-parts
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending
