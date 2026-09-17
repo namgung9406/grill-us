@@ -1,11 +1,23 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter } from "react-router-dom";
+
+import { AuthProvider } from "./auth/AuthProvider";
+import { AppRoutes } from "./routes/AppRoutes";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: false },
+  },
+});
+
 export default function App() {
   return (
-    <main className="app-shell">
-      <section className="welcome-panel" aria-labelledby="app-title">
-        <p className="eyebrow">GRILL US ARCADE</p>
-        <h1 id="app-title">게임을 준비하고 있습니다</h1>
-        <p>Microsoft Entra ID로 연결되는 사내 픽셀 아케이드입니다.</p>
-      </section>
-    </main>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </BrowserRouter>
+    </QueryClientProvider>
   );
 }

@@ -1,6 +1,6 @@
 # Task: T02 Entra Auth Shell
 
-## Status: pending
+## Status: done
 
 ## Goal
 단일 테넌트 MSAL redirect 인증과 보호 라우팅을 구축하여 Home은 공개하고 Games는 로그인 후 원래 URL로 복귀하며, 데스크톱·모바일 사이드바에서 현재 인증 상태와 오류 복구를 표시한다.
@@ -86,10 +86,10 @@
 - 악성 외부 returnTo, redirect 처리 중 로딩, 인증 오류 재시도, 모바일 Escape focus 복귀를 포함한다.
 
 ## Acceptance Criteria
-- [ ] Home은 로그인 없이 열리고 Games 접근은 redirect 로그인 후 원래 경로로 돌아온다.
-- [ ] 브라우저 세션 내 첫 캐시 계정이 자동 선택되고 logout은 redirect 방식으로 완료된다.
-- [ ] 데스크톱 고정 및 모바일 drawer 사이드바가 키보드로 조작된다.
-- [ ] Graph/API 토큰 audience 용도의 scope가 분리된다.
+- [x] Home은 로그인 없이 열리고 Games 접근은 redirect 로그인 후 원래 경로로 돌아온다.
+- [x] 브라우저 세션 내 첫 캐시 계정이 자동 선택되고 logout은 redirect 방식으로 완료된다.
+- [x] 데스크톱 고정 및 모바일 drawer 사이드바가 키보드로 조작된다.
+- [x] Graph/API 토큰 audience 용도의 scope가 분리된다.
 
 ## Validation
 - `npm run test -- src/auth src/layout` — 인증·라우팅·셸 테스트 통과
@@ -108,6 +108,6 @@ Task: T02-entra-auth-shell
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending

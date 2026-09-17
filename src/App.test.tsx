@@ -1,5 +1,20 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import type { PropsWithChildren } from "react";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("./auth/AuthProvider", () => ({
+  AuthProvider: ({ children }: PropsWithChildren) => children,
+  useAuth: () => ({
+    status: "anonymous",
+    user: null,
+    errorMessage: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    acquireGraphToken: vi.fn(),
+    acquireApiToken: vi.fn(),
+    retry: vi.fn(),
+  }),
+}));
 
 import App from "./App";
 
