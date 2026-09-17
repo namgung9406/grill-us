@@ -97,4 +97,4 @@ Task: T06-boss-three-finale
 ## Progress
 - [x] 구현 완료
 - [x] 검증 통과
-- commit: pending
+- commit: d6fc3d7

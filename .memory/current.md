@@ -4,13 +4,13 @@
 [Grill Us Entra 로그인과 DEX Survivor](./plans/2026-09-17-grill-us-entra-dex-survivor.md)
 
 ## Active Phase
-[P02 DEX Survivor Game](./phases/2026-09-17-grill-us-entra-dex-survivor/P02-dex-survivor-game/phase.md)
+[P03 Authenticated Development Leaderboard](./phases/2026-09-17-grill-us-entra-dex-survivor/P03-leaderboard/phase.md)
 
 ## Active Task
-[T02 Phaser Player Runtime](./phases/2026-09-17-grill-us-entra-dex-survivor/P02-dex-survivor-game/T02-phaser-player-runtime.md)
+[T01 API Auth Storage](./phases/2026-09-17-grill-us-entra-dex-survivor/P03-leaderboard/T01-api-auth-storage.md)
 
 ## Status
-- P02-T01 완료, T02 구현 시작 준비 완료
+- P02 완료, P03-T01 구현 시작 준비 완료
 
 ## Next Step (IMPORTANT)
-P02-T02 청사진을 읽고 Phaser 런타임, 플레이어 전투, 입력과 React HUD 브리지 구현 시작
+P03-T01 청사진을 읽고 Express 서버, Entra JWT 인증과 SQLite 저장소 구현 시작

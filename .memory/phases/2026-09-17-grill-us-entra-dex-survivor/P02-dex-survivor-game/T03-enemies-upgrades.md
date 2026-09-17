@@ -98,4 +98,4 @@ Task: T03-enemies-upgrades
 ## Progress
 - [x] 구현 완료
 - [x] 검증 통과
-- commit: pending
+- commit: 4b2db9a
