@@ -47,7 +47,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return storedError;
   });
   const account = instance.getActiveAccount() ?? accounts[0] ?? null;
-  const env = parseClientEnv(import.meta.env, import.meta.env.MODE);
+  const env = useMemo(() => parseClientEnv(import.meta.env, import.meta.env.MODE), []);
 
   const runTokenRequest = useCallback(
     async (request: RedirectRequest): Promise<string> => {
@@ -91,6 +91,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, [account, instance]);
 
+  const acquireApiToken = useCallback(() => {
+    if (!env.VITE_LEADERBOARD_ENABLED) {
+      return Promise.reject(new LeaderboardDisabledError());
+    }
+    return runTokenRequest(apiTokenRequest(env));
+  }, [env, runTokenRequest]);
+
   const value = useMemo<AuthContextValue>(() => {
     const user = account === null ? null : toAuthenticatedUser(account);
     const status =
@@ -109,17 +116,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
       login,
       logout,
       acquireGraphToken: () => runTokenRequest(graphTokenRequest),
-      acquireApiToken: () => {
-        if (!env.VITE_LEADERBOARD_ENABLED) {
-          return Promise.reject(new LeaderboardDisabledError());
-        }
-        return runTokenRequest(apiTokenRequest(env));
-      },
+      acquireApiToken,
       retry: () => {
         setErrorMessage(null);
       },
     };
-  }, [account, env, errorMessage, inProgress, login, logout, runTokenRequest]);
+  }, [account, acquireApiToken, errorMessage, inProgress, login, logout, runTokenRequest]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

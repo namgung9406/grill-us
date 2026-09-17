@@ -1,33 +1,32 @@
 import { Route, Routes } from "react-router-dom";
 
 import { ProtectedRoute } from "@/auth/ProtectedRoute";
+import { PendingResultSync } from "@/leaderboard/PendingResultSync";
+import { isLeaderboardEnabled } from "@/leaderboard/queries";
 import { AppShell } from "@/layout/AppShell";
 import { GamePage } from "@/pages/GamePage";
 import { GamesPage } from "@/pages/GamesPage";
 import { HomePage } from "@/pages/HomePage";
+import { LeaderboardPage } from "@/pages/LeaderboardPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
-function PendingPage({ title }: { title: string }) {
-  return (
-    <section className="mx-auto max-w-5xl py-16">
-      <p className="font-mono text-xs font-black text-[#ffbd45]">COMING ONLINE</p>
-      <h1 className="mt-3 font-mono text-4xl font-black text-white">{title}</h1>
-    </section>
-  );
-}
-
 export function AppRoutes() {
+  const leaderboardEnabled = isLeaderboardEnabled();
+
   return (
-    <Routes>
-      <Route element={<AppShell />}>
-        <Route index element={<HomePage />} />
-        <Route element={<ProtectedRoute />}>
-          <Route path="games" element={<GamesPage />} />
-          <Route path="games/leaderboard" element={<PendingPage title="리더보드" />} />
-          <Route path="games/:gameId" element={<GamePage />} />
+    <>
+      {leaderboardEnabled ? <PendingResultSync /> : null}
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route index element={<HomePage />} />
+          <Route element={<ProtectedRoute />}>
+            <Route path="games" element={<GamesPage />} />
+            {leaderboardEnabled ? <Route path="games/leaderboard" element={<LeaderboardPage />} /> : null}
+            <Route path="games/:gameId" element={<GamePage />} />
+          </Route>
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
-    </Routes>
+      </Routes>
+    </>
   );
 }

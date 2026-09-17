@@ -1,6 +1,6 @@
 # Task: T03 Leaderboard Client
 
-## Status: pending
+## Status: done
 
 ## Goal
 인증된 SPA가 Express용 access token으로 Top 10을 조회하고, 현재 계정의 pending 결과만 자동·수동 재제출하며 실패 결과를 사용자가 확인하고 삭제할 수 있게 한다.
@@ -50,6 +50,7 @@
   - `src/layout/Sidebar.tsx` :: `leaderboard navigation` — enabled 조건; modify
   - `src/routes/AppRoutes.tsx` :: `leaderboard route` — enabled 조건; modify
   - `src/games/dex-survivor/ui/ResultScreen.tsx` :: `submission status link`; modify
+  - `src/games/dex-survivor/DexSurvivorGame.test.tsx` :: `leaderboard feature fixture` — 기존 결과 저장 재시도 회귀 검증; modify
 
 #### Details
 - 표시: 순위, displayName, score, outcome 한국어, enemyKills, hitCount, boss1/2/3 시간을 `m:ss.s` 또는 `-`로 표시. 이메일과 object ID는 없음.
@@ -69,10 +70,10 @@
 - 같은 계정 FIFO, 계정 전환 취소, 200 삭제, 422 유지, 429 자동 재시도 금지, disabled no-call을 검증한다.
 
 ## Acceptance Criteria
-- [ ] 인증된 Top 10 화면이 결정된 필드만 표시하고 개인정보를 추가 노출하지 않는다.
-- [ ] pending 결과는 같은 계정만 제출하고 성공할 때만 제거된다.
-- [ ] disabled 빌드는 리더보드 메뉴·route·API traffic이 모두 없다.
-- [ ] API request가 Graph token이나 클라이언트 사용자 신원을 전달하지 않는다.
+- [x] 인증된 Top 10 화면이 결정된 필드만 표시하고 개인정보를 추가 노출하지 않는다.
+- [x] pending 결과는 같은 계정만 제출하고 성공할 때만 제거된다.
+- [x] disabled 빌드는 리더보드 메뉴·route·API traffic이 모두 없다.
+- [x] API request가 Graph token이나 클라이언트 사용자 신원을 전달하지 않는다.
 
 ## Validation
 - `npm run test -- src/leaderboard src/pages/LeaderboardPage.test.tsx` — query·queue·UI 테스트 통과
@@ -93,6 +94,6 @@ Task: T03-leaderboard-client
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending

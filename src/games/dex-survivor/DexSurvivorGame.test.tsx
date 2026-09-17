@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { StrictMode } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GameSaveV1, GameState } from "./domain/types";
@@ -159,6 +160,7 @@ describe("DexSurvivorGame", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(1_800_000_000_000);
+    vi.stubEnv("VITE_LEADERBOARD_ENABLED", "true");
     localStorage.clear();
     activeGames = 0;
     activeCommandListeners = 0;
@@ -168,6 +170,7 @@ describe("DexSurvivorGame", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     vi.useRealTimers();
   });
 
@@ -228,7 +231,11 @@ describe("DexSurvivorGame", () => {
   });
 
   it("keeps the active save when result append fails and removes it after retrying the same result", async () => {
-    render(<DexSurvivorGame ownerObjectId={OWNER_ID} profileAssets={profileAssets} onExit={vi.fn()} />);
+    render(
+      <MemoryRouter>
+        <DexSurvivorGame ownerObjectId={OWNER_ID} profileAssets={profileAssets} onExit={vi.fn()} />
+      </MemoryRouter>,
+    );
     await act(() => window.dispatchEvent(new PageTransitionEvent("pagehide")));
     expect(localStorage.getItem(saveKey(OWNER_ID))).not.toBeNull();
 
@@ -264,7 +271,11 @@ describe("DexSurvivorGame", () => {
   });
 
   it("appends a cleared result before removing the active save", async () => {
-    render(<DexSurvivorGame ownerObjectId={OWNER_ID} profileAssets={profileAssets} onExit={vi.fn()} />);
+    render(
+      <MemoryRouter>
+        <DexSurvivorGame ownerObjectId={OWNER_ID} profileAssets={profileAssets} onExit={vi.fn()} />
+      </MemoryRouter>,
+    );
     await act(() => window.dispatchEvent(new PageTransitionEvent("pagehide")));
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     const removeItem = vi.spyOn(Storage.prototype, "removeItem");

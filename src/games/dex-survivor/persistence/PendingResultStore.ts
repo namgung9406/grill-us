@@ -7,6 +7,14 @@ import { pendingResultsKey } from "./keys";
 
 const pendingResultsSchema = z.array(runResultSchema);
 
+type PendingResultListener = () => void;
+
+const listenersByOwner = new Map<string, Set<PendingResultListener>>();
+
+function notifyOwner(ownerObjectId: string): void {
+  listenersByOwner.get(ownerObjectId)?.forEach((listener) => listener());
+}
+
 function storageFailure(error: object): StorageResult {
   const { name } = error as { name?: string };
   return name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED"
@@ -16,6 +24,10 @@ function storageFailure(error: object): StorageResult {
 
 export class PendingResultStore {
   readonly #storage: Storage | null;
+  readonly #cache = new Map<
+    string,
+    { serialized: string | null; value: { ok: true; results: readonly RunResult[] } | { ok: false } }
+  >();
 
   public constructor(storage?: Storage) {
     if (storage !== undefined) {
@@ -33,6 +45,31 @@ export class PendingResultStore {
   public list(ownerObjectId: string): readonly RunResult[] {
     const stored = this.#read(ownerObjectId);
     return stored.ok ? stored.results : [];
+  }
+
+  public subscribe(ownerObjectId: string, listener: PendingResultListener): () => void {
+    const listeners = listenersByOwner.get(ownerObjectId) ?? new Set<PendingResultListener>();
+    listeners.add(listener);
+    listenersByOwner.set(ownerObjectId, listeners);
+
+    const handleStorage = (event: StorageEvent): void => {
+      if (event.key === pendingResultsKey(ownerObjectId)) {
+        listener();
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("storage", handleStorage);
+    }
+
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) {
+        listenersByOwner.delete(ownerObjectId);
+      }
+      if (typeof window !== "undefined") {
+        window.removeEventListener("storage", handleStorage);
+      }
+    };
   }
 
   public append(result: RunResult): StorageResult {
@@ -57,6 +94,7 @@ export class PendingResultStore {
         pendingResultsKey(result.ownerObjectId),
         JSON.stringify([...stored.results, parsedResult.data]),
       );
+      notifyOwner(result.ownerObjectId);
       return { ok: true };
     } catch (error) {
       return storageFailure(typeof error === "object" && error !== null ? error : new Error("Storage unavailable"));
@@ -83,6 +121,7 @@ export class PendingResultStore {
       } else {
         this.#storage.setItem(pendingResultsKey(ownerObjectId), JSON.stringify(remaining));
       }
+      notifyOwner(ownerObjectId);
     } catch {
       // Queue removal is best effort and must not interrupt the game.
     }
@@ -95,14 +134,24 @@ export class PendingResultStore {
 
     try {
       const value = this.#storage.getItem(pendingResultsKey(ownerObjectId));
+      const cached = this.#cache.get(ownerObjectId);
+      if (cached !== undefined && cached.serialized === value) {
+        return cached.value;
+      }
       if (value === null) {
-        return { ok: true, results: [] };
+        const empty = { ok: true as const, results: [] };
+        this.#cache.set(ownerObjectId, { serialized: value, value: empty });
+        return empty;
       }
       const parsed = pendingResultsSchema.safeParse(JSON.parse(value));
       if (!parsed.success || parsed.data.some((result) => result.ownerObjectId !== ownerObjectId)) {
-        return { ok: false };
+        const invalid = { ok: false as const };
+        this.#cache.set(ownerObjectId, { serialized: value, value: invalid });
+        return invalid;
       }
-      return { ok: true, results: parsed.data };
+      const stored = { ok: true as const, results: parsed.data };
+      this.#cache.set(ownerObjectId, { serialized: value, value: stored });
+      return stored;
     } catch {
       return { ok: false };
     }

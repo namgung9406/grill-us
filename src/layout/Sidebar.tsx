@@ -1,8 +1,9 @@
-import { Gamepad2, Home, LockKeyhole, LogIn, LogOut } from "lucide-react";
+import { Gamepad2, Home, ListOrdered, LockKeyhole, LogIn, LogOut } from "lucide-react";
 import { useEffect } from "react";
 import { NavLink } from "react-router-dom";
 
 import { useAuth } from "@/auth/AuthProvider";
+import { isLeaderboardEnabled } from "@/leaderboard/queries";
 
 interface SidebarProps {
   mobileOpen: boolean;
@@ -36,6 +37,7 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   }, [mobileOpen, onClose]);
 
   const isAuthenticated = status === "authenticated";
+  const leaderboardEnabled = isLeaderboardEnabled();
 
   return (
     <aside
@@ -75,6 +77,12 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
             게임
           </button>
         )}
+        {isAuthenticated && leaderboardEnabled ? (
+          <NavLink to="/games/leaderboard" className={linkClass} onClick={onClose}>
+            <ListOrdered aria-hidden="true" size={19} />
+            리더보드
+          </NavLink>
+        ) : null}
       </nav>
 
       <div className="mt-auto border-t border-[#344452] p-4">

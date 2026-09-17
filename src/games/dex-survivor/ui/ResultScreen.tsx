@@ -1,5 +1,7 @@
-import { LogOut, RotateCcw } from "lucide-react";
+import { ListOrdered, LogOut, RotateCcw } from "lucide-react";
+import { Link } from "react-router-dom";
 
+import { isLeaderboardEnabled } from "@/leaderboard/queries";
 import type { RunResult } from "../domain/types";
 
 interface ResultScreenProps {
@@ -21,6 +23,8 @@ function formatTime(elapsedMs: number | null): string {
 }
 
 export function ResultScreen({ result, rescuedCount, pendingSaved, onRetry, onExit }: ResultScreenProps) {
+  const leaderboardEnabled = isLeaderboardEnabled();
+
   return (
     <div className="absolute inset-0 z-30 grid place-items-center overflow-y-auto bg-black/80 p-4">
       <section className="w-full max-w-lg border border-[#ffbd45] bg-[#10171d] p-6 text-white" aria-label="게임 결과">
@@ -39,10 +43,15 @@ export function ResultScreen({ result, rescuedCount, pendingSaved, onRetry, onEx
           <dt className="text-[#aab8c2]">구조한 시민</dt><dd className="text-right">{rescuedCount}</dd>
         </dl>
 
-        {pendingSaved ? (
-          <p className="mt-6 border border-[#48d7e8] bg-[#14292d] p-3 text-sm text-[#bdebf0]" role="status">
-            결과가 제출 대기열에 저장되었습니다.
-          </p>
+        {!leaderboardEnabled ? (
+          <p className="mt-6 text-sm text-[#aab8c2]">리더보드는 개발 환경에서만 사용할 수 있습니다.</p>
+        ) : pendingSaved ? (
+          <div className="mt-6 border border-[#48d7e8] bg-[#14292d] p-3 text-sm text-[#bdebf0]" role="status">
+            <p>결과가 제출 대기열에 저장되었습니다.</p>
+            <Link className="mt-3 inline-flex items-center gap-2 font-mono font-black text-white underline" to="/games/leaderboard">
+              <ListOrdered aria-hidden="true" size={17} /> 리더보드 보기
+            </Link>
+          </div>
         ) : (
           <div className="mt-6 border border-[#ff5d62] bg-[#2a1c20] p-3" role="alert">
             <p className="text-sm text-[#ffd8d9]">결과를 저장하지 못했습니다. 진행 상황은 유지됩니다.</p>
