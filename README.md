@@ -67,3 +67,58 @@
 ## 📁 예시 살펴보기
 
 `examples/` 폴더에 세미나에서 설명한 **'쇼핑몰 상품 API 구축'** 실물 파일들이 들어있습니다. 어떻게 계획되고 작성되는지 참고해 보세요!
+
+---
+
+## Grill Us 앱 실행
+
+이 저장소에는 React 19, Vite, TypeScript와 Phaser 3로 만든 사내 게임 SPA가 포함되어 있습니다. 로그인은 Microsoft Entra ID redirect 방식이며, 사용자 사진은 Microsoft Graph에서 받아 메모리에만 보관합니다.
+
+### 1. Microsoft Entra 설정
+
+1. Entra 관리 센터에서 이 SPA용 앱 등록을 만들고 **단일 테넌트**를 선택합니다.
+2. 인증 메뉴에서 플랫폼 `Single-page application`을 추가하고 로컬 redirect URI `http://localhost:5173`을 등록합니다.
+3. Microsoft Graph의 위임된 권한 `User.Read.All`을 추가하고 관리자가 동의합니다. 이 앱은 게임용 사진을 가져오기 전에 조직에서 이 권한이 승인됐다고 가정합니다.
+4. 개발 리더보드를 사용할 때는 API 앱 등록에서 `api://{api-client-id}/Leaderboard.Access` scope를 노출합니다.
+5. SPA 앱 등록에 위 scope의 위임된 권한을 추가하고 관리자 동의를 완료합니다.
+6. SPA는 PKCE redirect 흐름을 사용합니다. **client secret을 만들거나 브라우저 환경 변수에 넣지 마세요.**
+
+환경 변수 매핑:
+
+- `VITE_ENTRA_CLIENT_ID`: SPA 앱 등록의 Application (client) ID
+- `VITE_ENTRA_TENANT_ID`: Directory (tenant) ID
+- `VITE_ENTRA_REDIRECT_URI`: SPA에 등록한 정확한 redirect URI
+- `VITE_ENTRA_API_SCOPE`: `api://{api-client-id}/Leaderboard.Access`
+- `ENTRA_TENANT_ID`: API가 허용할 동일 tenant ID
+- `ENTRA_API_AUDIENCE`: API 앱의 Application ID URI인 `api://{api-client-id}`
+- `ENTRA_REQUIRED_SCOPE`: `Leaderboard.Access` 고정값
+
+### 2. 로컬 실행
+
+```powershell
+Copy-Item .env.example .env.local
+npm install
+npm run dev
+```
+
+기본 주소는 SPA `http://localhost:5173`, API `http://localhost:3001`입니다. 일반 게임 실행에는 리더보드가 필요하지 않습니다. 개발 리더보드를 켜려면 client의 `VITE_LEADERBOARD_ENABLED`와 server의 `LEADERBOARD_ENABLED`를 모두 `true`로 설정하고 API scope/tenant/audience를 채웁니다.
+
+로컬에서 실제 API token 없이 리더보드를 시험할 때만 `LEADERBOARD_DEV_AUTH_BYPASS=true`와 개발 사용자 ID/이름을 설정할 수 있습니다. `NODE_ENV=production`은 리더보드와 인증 우회를 모두 거부하며, `VITE_E2E_AUTH`는 Playwright의 `e2e` mode 외에는 사용할 수 없습니다.
+
+### 3. 검증 명령
+
+```powershell
+npm test
+npm run typecheck
+npm run lint
+npm run build
+npm run test:e2e
+```
+
+Playwright 최초 실행에서 Chromium이 없다면 `npx playwright install chromium`을 한 번 실행합니다.
+
+### 4. 데이터 보관 정책
+
+- 개발 리더보드 SQLite 기본 파일은 `server/data/leaderboard.sqlite`입니다. 서버를 종료한 뒤 이 파일과 같은 이름의 `-wal`, `-shm` 파일을 삭제하면 로컬 순위 데이터가 초기화됩니다.
+- 전송 대기 중인 게임 결과와 진행 저장은 브라우저 `localStorage`에 Entra object ID별로 분리되어 남습니다. 로그아웃만으로 삭제되지 않습니다.
+- Microsoft Graph 사용자 사진은 실행 중 Blob URL로만 사용하고 화면이나 게임을 종료할 때 revoke합니다. SQLite와 `localStorage`에는 사진이나 Blob URL을 저장하지 않습니다.

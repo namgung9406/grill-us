@@ -75,3 +75,10 @@ input {
   font-family: "Courier New", monospace;
   font-weight: 700;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse,
+  .animate-spin {
+    animation: none !important;
+  }
+}

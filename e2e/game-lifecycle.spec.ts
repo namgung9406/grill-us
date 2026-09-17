@@ -47,7 +47,7 @@ test("게임 시작, 입력, 숨김 일시정지, 저장과 복원을 이어간�
   await expect(page.getByRole("heading", { name: "출격 준비 완료" })).toBeVisible();
   await page.getByRole("button", { name: "게임 입장" }).click();
   await app.waitForGameBridge();
-  await expect(page.getByLabel("일시정지 메뉴")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "일시정지" })).toBeVisible();
   await page.getByRole("button", { name: "계속하기" }).click();
   await expect.poll(async () => (await app.getSnapshot()).sessionId).toBe(savedSessionId);
   await expect(page.getByText("BOSS RESUMING")).toBeVisible();
@@ -58,7 +58,7 @@ test("재시작과 나가기는 완료 결과를 만들지 않는다", async ({ 
   const firstSessionId = (await app.getSnapshot()).sessionId;
   await page.getByRole("button", { name: "게임 일시정지" }).click();
   await page.getByRole("button", { name: "재시작" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "재시작" }).click();
+  await page.getByRole("dialog", { name: "게임 재시작" }).getByRole("button", { name: "재시작" }).click();
   await app.waitForGameBridge();
   await expect.poll(async () => (await app.getSnapshot()).sessionId).not.toBe(firstSessionId);
   await page.getByRole("button", { name: "게임 일시정지" }).click();

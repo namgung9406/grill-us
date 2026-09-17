@@ -165,7 +165,7 @@ interface AppFixtures {
 
 export const test = base.extend<AppFixtures>({
   browserErrorGuard: [
-    async ({ page }, use) => {
+    async ({ page }, provide) => {
       const browserErrors: string[] = [];
       page.on("pageerror", (error) => browserErrors.push(error.stack ?? error.message));
       page.on("console", (message) => {
@@ -174,13 +174,13 @@ export const test = base.extend<AppFixtures>({
         }
       });
 
-      await use();
+      await provide();
       expect(browserErrors, "브라우저 실행 중 처리되지 않은 오류가 발생했습니다.").toEqual([]);
     },
     { auto: true },
   ],
   externalNetworkGuard: [
-    async ({ context }, use) => {
+    async ({ context }, provide) => {
       const blockedRequests: string[] = [];
       await context.route("**/*", async (route) => {
         const hostname = new URL(route.request().url()).hostname;
@@ -192,13 +192,13 @@ export const test = base.extend<AppFixtures>({
         await route.continue();
       });
 
-      await use();
+      await provide();
       expect(blockedRequests, "E2E 중 Microsoft 인증 또는 Graph 요청이 발생했습니다.").toEqual([]);
     },
     { auto: true },
   ],
-  app: async ({ page }, use) => {
-    await use(new AppDriver(page));
+  app: async ({ page }, provide) => {
+    await provide(new AppDriver(page));
   },
 });
 

@@ -19,8 +19,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const env = useMemo(() => parseClientEnv(import.meta.env, import.meta.env.MODE), []);
-  const [retryKey, setRetryKey] = useState(0);
-  const adapterPromise = useMemo(() => createAuthAdapter(env), [env, retryKey]);
+  const [adapterPromise, setAdapterPromise] = useState(() => createAuthAdapter(env));
   const [adapter, setAdapter] = useState<AuthAdapter | null>(null);
   const [user, setUser] = useState<AuthContextValue["user"]>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(() => {
@@ -31,7 +30,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     let active = true;
-    setAdapter(null);
 
     void adapterPromise
       .then(async (nextAdapter) => {
@@ -95,6 +93,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, [adapter]);
 
+  const retry = useCallback(() => {
+    setErrorMessage(null);
+    setAdapter(null);
+    setAdapterPromise(createAuthAdapter(env));
+  }, [env]);
+
   const value = useMemo<AuthContextValue>(() => {
     const status =
       errorMessage !== null
@@ -119,12 +123,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
         adapter === null
           ? Promise.reject(new Error("인증 초기화가 완료되지 않았습니다."))
           : adapter.acquireApiToken(),
-      retry: () => {
-        setErrorMessage(null);
-        setRetryKey((current) => current + 1);
-      },
+      retry,
     };
-  }, [adapter, errorMessage, login, logout, user]);
+  }, [adapter, errorMessage, login, logout, retry, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

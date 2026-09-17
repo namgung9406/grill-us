@@ -12,6 +12,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    include: ["src/**/*.test.{ts,tsx}", "server/**/*.test.ts"],
     setupFiles: ["./src/test/setup.ts"],
     coverage: {
       reporter: ["text", "html"],

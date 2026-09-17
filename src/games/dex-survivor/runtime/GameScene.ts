@@ -11,10 +11,19 @@ import {
 } from "../domain/bosses";
 import { SimulationClock } from "../domain/clock";
 import { GAME_BALANCE } from "../domain/constants";
-import { enemyRadius } from "../domain/enemies";
+import { ENEMY_ARCHETYPES, enemyRadius } from "../domain/enemies";
 import { advanceTimeline } from "../domain/progression";
 import { XorShift32 } from "../domain/random";
-import type { BossSnapshot, EnemySnapshot, GameSaveV1, GameState, ProjectileSnapshot, Vector2 } from "../domain/types";
+import type {
+  BossSnapshot,
+  EnemySnapshot,
+  GameSaveV1,
+  GameState,
+  PickupSnapshot,
+  ProjectileSnapshot,
+  EnemyType,
+  Vector2,
+} from "../domain/types";
 import { derivedStats } from "../domain/upgrades";
 import { getWaveBudget, selectEnemyType } from "../domain/waves";
 import { BossOneSystem } from "./bosses/BossOneSystem";
@@ -57,6 +66,44 @@ export interface GameSceneTestPort {
   damagePlayer: (amount: number) => void;
   completeCurrentBoss: () => void;
 }
+
+export interface GamePerformanceDiagnostics {
+  readonly stepDurationsMs: readonly number[];
+  readonly droppedCatchUpEvents: number;
+  readonly bridgeListenerCount: number;
+  readonly snapshotBytes: number;
+  readonly entityCounts: {
+    readonly enemies: number;
+    readonly projectiles: number;
+    readonly pickups: number;
+  };
+}
+
+export interface GamePerformanceApi {
+  prepareMaximumEntityFixture: () => void;
+  resetMetrics: () => void;
+  readMetrics: () => GamePerformanceDiagnostics;
+}
+
+declare global {
+  var __DEX_PERF__: GamePerformanceApi | undefined;
+}
+
+const MAX_PERFORMANCE_SAMPLES = 7_200;
+const ENEMY_COLLISION_CELL_SIZE = 64;
+const ENEMY_COLLISION_GRID_COLUMNS = Math.ceil(GAME_BALANCE.arena.width / ENEMY_COLLISION_CELL_SIZE) + 1;
+const DETAILED_ENEMY_VIEW_LIMIT = 100;
+const ENEMY_VISUAL_CELL_SIZE = 32;
+const ENEMY_VISUAL_GRID_COLUMNS = Math.ceil(GAME_BALANCE.arena.width / ENEMY_VISUAL_CELL_SIZE) + 1;
+const PROJECTILE_VISUAL_CELL_SIZE = 4;
+const PROJECTILE_VISUAL_GRID_COLUMNS = Math.ceil(GAME_BALANCE.arena.width / PROJECTILE_VISUAL_CELL_SIZE) + 1;
+const ENEMY_COLORS: Readonly<Record<EnemyType, number>> = {
+  chaser: 0xe85d75,
+  ranged: 0xf2c14e,
+  splitter: 0x8f6ad8,
+  "splitter-small": 0xc89cff,
+  tank: 0x5d7a8c,
+};
 
 function cloneState(state: GameState): GameState {
   return structuredClone(state);
@@ -108,8 +155,10 @@ export class GameScene extends Phaser.Scene {
   #touchInput: TouchInput | null = null;
   #playerView: PlayerView | null = null;
   readonly #enemyViews = new Map<string, EnemyView>();
-  readonly #projectileViews = new Map<string, Phaser.GameObjects.Arc>();
-  readonly #pickupViews = new Map<string, Phaser.GameObjects.Arc>();
+  #enemyBatch: Phaser.GameObjects.Graphics | null = null;
+  #projectileBatch: Phaser.GameObjects.Graphics | null = null;
+  #pickupBatch: Phaser.GameObjects.Graphics | null = null;
+  readonly #renderedPickupIds = new Set<string>();
   #bossOneView: BossOneView | null = null;
   #bossTwoView: BossTwoView | null = null;
   #bossThreeView: BossThreeView | null = null;
@@ -121,6 +170,9 @@ export class GameScene extends Phaser.Scene {
   #resumeCountdownDeadlineMs: number | null = null;
   #restoreCountdownRemainingMs: number | null = null;
   #restoreCountdownDeadlineMs: number | null = null;
+  #performanceApi: GamePerformanceApi | null = null;
+  #performanceSamples: number[] | null = import.meta.env.MODE === "e2e" ? [] : null;
+  #droppedCatchUpEvents = 0;
   #cleanedUp = false;
 
   public constructor(options: GameSceneOptions) {
@@ -165,6 +217,7 @@ export class GameScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.#cleanup, this);
     this.events.once(Phaser.Scenes.Events.DESTROY, this.#cleanup, this);
     this.#publishViewState();
+    this.#installPerformanceApi();
   }
 
   public override update(_time: number, deltaMs: number): void {
@@ -189,7 +242,28 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.#clock.advance(deltaMs, (stepMs) => this.#simulate(stepMs));
+    let simulated = false;
+    this.#clock.advance(deltaMs, (stepMs) => {
+      simulated = true;
+      if (this.#performanceSamples === null) {
+        this.#simulate(stepMs);
+        return;
+      }
+      const startedAt = performance.now();
+      this.#simulate(stepMs);
+      const durationMs = performance.now() - startedAt;
+      this.#performanceSamples.push(durationMs);
+      if (durationMs > GAME_BALANCE.simulation.stepMs * GAME_BALANCE.simulation.maxCatchUpSteps) {
+        this.#droppedCatchUpEvents += 1;
+      }
+      if (this.#performanceSamples.length > MAX_PERFORMANCE_SAMPLES) {
+        this.#performanceSamples.splice(0, this.#performanceSamples.length - MAX_PERFORMANCE_SAMPLES);
+      }
+    });
+    if (simulated) {
+      this.#syncViews();
+      this.#publishViewState();
+    }
   }
 
   readonly #onCommand = (command: GameCommand): void => {
@@ -388,6 +462,93 @@ export class GameScene extends Phaser.Scene {
     this.#publishViewState();
   }
 
+  #installPerformanceApi(): void {
+    if (this.#performanceSamples === null) {
+      return;
+    }
+    const api: GamePerformanceApi = Object.freeze({
+      prepareMaximumEntityFixture: () => this.#prepareMaximumEntityFixture(),
+      resetMetrics: () => {
+        this.#performanceSamples?.splice(0);
+        this.#droppedCatchUpEvents = 0;
+      },
+      readMetrics: () => ({
+        stepDurationsMs: [...(this.#performanceSamples ?? [])],
+        droppedCatchUpEvents: this.#droppedCatchUpEvents,
+        bridgeListenerCount: this.#options.bridge.listenerCount(),
+        snapshotBytes: new Blob([JSON.stringify(this.#testSnapshot())]).size,
+        entityCounts: {
+          enemies: this.#state.enemies.length,
+          projectiles: this.#state.projectiles.length,
+          pickups: this.#state.pickups.length,
+        },
+      }),
+    });
+    this.#performanceApi = api;
+    globalThis.__DEX_PERF__ = api;
+  }
+
+  #prepareMaximumEntityFixture(): void {
+    const entityId = (index: number): string =>
+      `30000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`;
+    const enemies: EnemySnapshot[] = Array.from({ length: GAME_BALANCE.limits.enemies }, (_, index) => ({
+      id: entityId(index + 1),
+      type: "tank",
+      position: { x: index % 2 === 0 ? 24 : GAME_BALANCE.arena.width - 24, y: (index * 37) % GAME_BALANCE.arena.height },
+      velocity: { x: 0, y: 0 },
+      hp: ENEMY_ARCHETYPES.tank.hp,
+      attackCooldownMs: 0,
+      contactCooldownMs: 0,
+    }));
+    const projectiles: ProjectileSnapshot[] = Array.from(
+      { length: GAME_BALANCE.limits.projectiles },
+      (_, index) => ({
+        id: entityId(GAME_BALANCE.limits.enemies + index + 1),
+        owner: "player",
+        position: { x: GAME_BALANCE.arena.width / 2, y: GAME_BALANCE.arena.height / 2 },
+        velocity: { x: 0, y: 0 },
+        damage: 0,
+        remainingRange: 1_000_000,
+        radius: 1,
+      }),
+    );
+    const pickupTypes: readonly PickupSnapshot["type"][] = [
+      "gun-damage",
+      "gun-range",
+      "sword-power",
+      "dash-capacity",
+      "dash-recovery",
+      "ultimate-charge",
+    ];
+    const pickups: PickupSnapshot[] = Array.from({ length: GAME_BALANCE.limits.pickups }, (_, index) => ({
+      id: entityId(GAME_BALANCE.limits.enemies + GAME_BALANCE.limits.projectiles + index + 1),
+      type: pickupTypes[index % pickupTypes.length] ?? "gun-damage",
+      position: { x: index % 2 === 0 ? 12 : GAME_BALANCE.arena.width - 12, y: (index * 53) % GAME_BALANCE.arena.height },
+      ttlMs: 120_000,
+    }));
+    const player = { ...this.#state.player, invulnerableRemainingMs: 120_000 };
+    this.#state = {
+      ...this.#state,
+      phase: "normal",
+      phaseBeforePause: "normal",
+      normalElapsedMs: 600_000,
+      bossTimesMs: [60_000, 60_000, null],
+      player,
+      enemies,
+      projectiles,
+      pickups,
+      boss: null,
+      activeHazards: [],
+    };
+    this.#playerSystem.reset(player, this.#state.hitCount);
+    this.#enemySystem = this.#createEnemySystem();
+    this.#pickupSystem = this.#createPickupSystem();
+    this.#performanceSamples?.splice(0);
+    this.#droppedCatchUpEvents = 0;
+    this.#syncViews();
+    this.#publishViewState();
+  }
+
   readonly #onVisibilityChange = (): void => {
     this.#desktopInput?.reset();
     this.#touchInput?.reset();
@@ -437,8 +598,6 @@ export class GameScene extends Phaser.Scene {
     this.#ensureFinaleAddsBattle();
     this.#handlePlayerActions(result.actions);
     if (this.#isResumeCountdownActive() || this.#state.phase === "cleared") {
-      this.#syncViews();
-      this.#publishViewState();
       return;
     }
 
@@ -468,8 +627,6 @@ export class GameScene extends Phaser.Scene {
 
     this.#stepProjectiles(deltaMs);
     if (this.#isResumeCountdownActive()) {
-      this.#syncViews();
-      this.#publishViewState();
       return;
     }
     const pickupResult = this.#pickupSystem.step(deltaMs, this.#state.player);
@@ -486,8 +643,6 @@ export class GameScene extends Phaser.Scene {
       enemyKills: this.#enemySystem.enemyKills,
       rngState: this.#random.state(),
     };
-    this.#syncViews();
-    this.#publishViewState();
   }
 
   #createEnemySystem(): EnemySystem {
@@ -724,6 +879,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   #stepProjectiles(deltaMs: number): void {
+    const enemyCells = new Map<number, EnemySnapshot[]>();
+    const activeEnemyIds = new Set<string>();
+    for (const enemy of this.#enemySystem.enemies) {
+      const cellX = Math.floor(enemy.position.x / ENEMY_COLLISION_CELL_SIZE);
+      const cellY = Math.floor(enemy.position.y / ENEMY_COLLISION_CELL_SIZE);
+      const key = cellY * ENEMY_COLLISION_GRID_COLUMNS + cellX;
+      const cell = enemyCells.get(key);
+      if (cell === undefined) {
+        enemyCells.set(key, [enemy]);
+      } else {
+        cell.push(enemy);
+      }
+      activeEnemyIds.add(enemy.id);
+    }
     const remaining: ProjectileSnapshot[] = [];
     for (const projectile of this.#state.projectiles) {
       const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
@@ -739,11 +908,27 @@ export class GameScene extends Phaser.Scene {
       };
 
       if (next.owner === "player") {
-        const hit = this.#enemySystem.enemies.find(
-          (enemy) => this.#distance(next.position, enemy.position) <= next.radius + enemyRadius(enemy.type),
-        );
+        const cellX = Math.floor(next.position.x / ENEMY_COLLISION_CELL_SIZE);
+        const cellY = Math.floor(next.position.y / ENEMY_COLLISION_CELL_SIZE);
+        let hit: EnemySnapshot | undefined;
+        for (let offsetY = -1; offsetY <= 1 && hit === undefined; offsetY += 1) {
+          for (let offsetX = -1; offsetX <= 1 && hit === undefined; offsetX += 1) {
+            const key = (cellY + offsetY) * ENEMY_COLLISION_GRID_COLUMNS + cellX + offsetX;
+            hit = enemyCells.get(key)?.find((enemy) => {
+              if (!activeEnemyIds.has(enemy.id)) {
+                return false;
+              }
+              const collisionRadius = next.radius + enemyRadius(enemy.type);
+              const offsetX = next.position.x - enemy.position.x;
+              const offsetY = next.position.y - enemy.position.y;
+              return offsetX * offsetX + offsetY * offsetY <= collisionRadius * collisionRadius;
+            });
+          }
+        }
         if (hit) {
-          this.#damageEnemy(hit.id, next.damage);
+          if (this.#damageEnemy(hit.id, next.damage)) {
+            activeEnemyIds.delete(hit.id);
+          }
           continue;
         }
         const bossTarget = this.#bossOneSystem?.damageTargets.find(
@@ -788,7 +973,7 @@ export class GameScene extends Phaser.Scene {
     this.#state = { ...this.#state, projectiles: remaining };
   }
 
-  #damageEnemy(enemyId: string, damage: number): void {
+  #damageEnemy(enemyId: string, damage: number): boolean {
     const result = this.#enemySystem.damageEnemy(enemyId, damage);
     if (result.killed !== null) {
       this.#pickupSystem.tryDrop(result.killed.position, this.#state.player.upgrades);
@@ -799,6 +984,7 @@ export class GameScene extends Phaser.Scene {
       enemyKills: result.enemyKills,
       pickups: this.#pickupSystem.pickups,
     };
+    return result.killed !== null;
   }
 
   #damageBossOne(targetId: string, damage: number): void {
@@ -1085,6 +1271,33 @@ export class GameScene extends Phaser.Scene {
   }
 
   #syncEnemyViews(): void {
+    if (this.#state.enemies.length > DETAILED_ENEMY_VIEW_LIMIT) {
+      for (const view of this.#enemyViews.values()) {
+        view.destroy();
+      }
+      this.#enemyViews.clear();
+      this.#enemyBatch ??= this.add.graphics().setDepth(5);
+      this.#enemyBatch.clear();
+      for (const type of Object.keys(ENEMY_COLORS) as EnemyType[]) {
+        this.#enemyBatch.fillStyle(ENEMY_COLORS[type]);
+        const renderedCells = new Set<number>();
+        for (const enemy of this.#state.enemies) {
+          if (enemy.type === type) {
+            const cellX = Math.floor(enemy.position.x / ENEMY_VISUAL_CELL_SIZE);
+            const cellY = Math.floor(enemy.position.y / ENEMY_VISUAL_CELL_SIZE);
+            const cell = cellY * ENEMY_VISUAL_GRID_COLUMNS + cellX;
+            if (renderedCells.has(cell)) {
+              continue;
+            }
+            renderedCells.add(cell);
+            this.#enemyBatch.fillCircle(enemy.position.x, enemy.position.y, enemyRadius(type));
+          }
+        }
+      }
+      return;
+    }
+    this.#enemyBatch?.destroy();
+    this.#enemyBatch = null;
     const activeIds = new Set(this.#state.enemies.map(({ id }) => id));
     for (const [id, view] of this.#enemyViews) {
       if (!activeIds.has(id)) {
@@ -1105,46 +1318,44 @@ export class GameScene extends Phaser.Scene {
   }
 
   #syncProjectileViews(): void {
-    const activeIds = new Set(this.#state.projectiles.map(({ id }) => id));
-    for (const [id, view] of this.#projectileViews) {
-      if (!activeIds.has(id)) {
-        view.destroy();
-        this.#projectileViews.delete(id);
+    this.#projectileBatch ??= this.add.graphics().setDepth(8);
+    this.#projectileBatch.clear();
+    this.#projectileBatch.fillStyle(0x8ad8ff);
+    const renderedPlayerCells = new Set<number>();
+    for (const projectile of this.#state.projectiles) {
+      if (projectile.owner === "player") {
+        const cellX = Math.floor(projectile.position.x / PROJECTILE_VISUAL_CELL_SIZE);
+        const cellY = Math.floor(projectile.position.y / PROJECTILE_VISUAL_CELL_SIZE);
+        const cell = cellY * PROJECTILE_VISUAL_GRID_COLUMNS + cellX;
+        if (renderedPlayerCells.has(cell)) {
+          continue;
+        }
+        renderedPlayerCells.add(cell);
+        this.#projectileBatch.fillCircle(projectile.position.x, projectile.position.y, projectile.radius);
       }
     }
+    this.#projectileBatch.fillStyle(0xf26d6d);
     for (const projectile of this.#state.projectiles) {
-      let view = this.#projectileViews.get(projectile.id);
-      if (!view) {
-        view = this.add
-          .circle(
-            projectile.position.x,
-            projectile.position.y,
-            projectile.radius,
-            projectile.owner === "player" ? 0x8ad8ff : 0xf26d6d,
-          )
-          .setDepth(8);
-        this.#projectileViews.set(projectile.id, view);
+      if (projectile.owner === "enemy") {
+        this.#projectileBatch.fillCircle(projectile.position.x, projectile.position.y, projectile.radius);
       }
-      view.setPosition(projectile.position.x, projectile.position.y);
     }
   }
 
   #syncPickupViews(): void {
-    const activeIds = new Set(this.#state.pickups.map(({ id }) => id));
-    for (const [id, view] of this.#pickupViews) {
-      if (!activeIds.has(id)) {
-        view.destroy();
-        this.#pickupViews.delete(id);
-      }
+    this.#pickupBatch ??= this.add.graphics().setDepth(4);
+    if (
+      this.#renderedPickupIds.size === this.#state.pickups.length &&
+      this.#state.pickups.every(({ id }) => this.#renderedPickupIds.has(id))
+    ) {
+      return;
     }
+    this.#pickupBatch.clear().fillStyle(0xffd166).lineStyle(2, 0xffffff, 0.85);
+    this.#renderedPickupIds.clear();
     for (const pickup of this.#state.pickups) {
-      let view = this.#pickupViews.get(pickup.id);
-      if (!view) {
-        view = this.add.circle(pickup.position.x, pickup.position.y, 10, 0xffd166).setDepth(4);
-        view.setStrokeStyle(2, 0xffffff, 0.85);
-        this.#pickupViews.set(pickup.id, view);
-      }
-      view.setPosition(pickup.position.x, pickup.position.y);
+      this.#renderedPickupIds.add(pickup.id);
+      this.#pickupBatch.fillCircle(pickup.position.x, pickup.position.y, 10);
+      this.#pickupBatch.strokeCircle(pickup.position.x, pickup.position.y, 10);
     }
   }
 
@@ -1227,14 +1438,13 @@ export class GameScene extends Phaser.Scene {
       view.destroy();
     }
     this.#enemyViews.clear();
-    for (const view of this.#projectileViews.values()) {
-      view.destroy();
-    }
-    this.#projectileViews.clear();
-    for (const view of this.#pickupViews.values()) {
-      view.destroy();
-    }
-    this.#pickupViews.clear();
+    this.#enemyBatch?.destroy();
+    this.#enemyBatch = null;
+    this.#projectileBatch?.destroy();
+    this.#projectileBatch = null;
+    this.#pickupBatch?.destroy();
+    this.#pickupBatch = null;
+    this.#renderedPickupIds.clear();
     this.#bossOneView?.destroy();
     this.#bossOneView = null;
     this.#bossTwoView?.destroy();
@@ -1275,6 +1485,10 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.#cleanedUp = true;
+    if (globalThis.__DEX_PERF__ === this.#performanceApi) {
+      Reflect.deleteProperty(globalThis, "__DEX_PERF__");
+    }
+    this.#performanceApi = null;
     document.removeEventListener("visibilitychange", this.#onVisibilityChange);
     this.#unsubscribeCommands?.();
     this.#unsubscribeCommands = null;

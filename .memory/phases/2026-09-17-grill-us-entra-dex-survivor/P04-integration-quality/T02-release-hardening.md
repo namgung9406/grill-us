@@ -1,6 +1,6 @@
 # Task: T02 Release Hardening
 
-## Status: pending
+## Status: done
 
 ## Goal
 완성된 앱의 접근성, desktop/mobile 레이아웃, Phaser 성능, 사진·listener 수명주기와 운영 리더보드 비활성화를 검증하고 재현 가능한 Entra 설정 문서를 남긴다.
@@ -74,11 +74,11 @@
 - flaky retry로 숨기지 않고 결정론적 clock/seed/fixture를 수정한다. unrelated starter example 파일은 변경하지 않는다.
 
 ## Acceptance Criteria
-- [ ] 주요 화면 serious/critical 접근성 위반, overflow, overlap이 없다.
-- [ ] 최대 적 cap에서도 simulation step 비용과 snapshot 크기 상한을 지킨다.
-- [ ] 반복 start/exit와 tab 복귀 후 canvas, listener, object URL 누수가 없다.
-- [ ] production boundary에서 leaderboard·dev auth·E2E bridge가 노출되지 않는다.
-- [ ] README만으로 Entra 설정과 로컬 실행·검증을 재현할 수 있다.
+- [x] 주요 화면 serious/critical 접근성 위반, overflow, overlap이 없다.
+- [x] 최대 적 cap에서도 simulation step 비용과 snapshot 크기 상한을 지킨다.
+- [x] 반복 start/exit와 tab 복귀 후 canvas, listener, object URL 누수가 없다.
+- [x] production boundary에서 leaderboard·dev auth·E2E bridge가 노출되지 않는다.
+- [x] README만으로 Entra 설정과 로컬 실행·검증을 재현할 수 있다.
 
 ## Validation
 - `npm test` — 전체 Vitest suite 통과
@@ -98,6 +98,6 @@ Task: T02-release-hardening
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending

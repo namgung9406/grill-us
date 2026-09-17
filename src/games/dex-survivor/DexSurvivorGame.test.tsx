@@ -220,7 +220,7 @@ describe("DexSurvivorGame", () => {
     render(<DexSurvivorGame ownerObjectId={OWNER_ID} profileAssets={profileAssets} onExit={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "재시작" }));
-    const dialog = screen.getByRole("dialog");
+    const dialog = screen.getByRole("dialog", { name: "게임 재시작" });
     expect(within(dialog).getByText("현재 진행 상황이 모두 초기화됩니다. 재시작하시겠습니까?")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "재시작" }));
 

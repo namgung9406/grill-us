@@ -18,33 +18,35 @@ export class E2eAuthAdapter implements AuthAdapter {
     this.#env = env;
   }
 
-  public async initialize(): Promise<AuthenticatedUser | null> {
+  public initialize(): Promise<AuthenticatedUser | null> {
     this.#user = sessionStorage.getItem(E2E_AUTHENTICATED_KEY) === "false" ? null : E2E_USER;
-    return this.#user;
+    return Promise.resolve(this.#user);
   }
 
   public getUser(): AuthenticatedUser | null {
     return this.#user;
   }
 
-  public async login(): Promise<void> {
+  public login(): Promise<void> {
     this.#user = E2E_USER;
     sessionStorage.setItem(E2E_AUTHENTICATED_KEY, "true");
+    return Promise.resolve();
   }
 
-  public async logout(): Promise<void> {
+  public logout(): Promise<void> {
     this.#user = null;
     sessionStorage.setItem(E2E_AUTHENTICATED_KEY, "false");
+    return Promise.resolve();
   }
 
-  public async acquireGraphToken(): Promise<string> {
-    return "e2e-graph-token";
+  public acquireGraphToken(): Promise<string> {
+    return Promise.resolve("e2e-graph-token");
   }
 
-  public async acquireApiToken(): Promise<string> {
+  public acquireApiToken(): Promise<string> {
     if (!this.#env.VITE_LEADERBOARD_ENABLED) {
-      throw new Error("개발 리더보드가 비활성화되어 있습니다.");
+      return Promise.reject(new Error("개발 리더보드가 비활성화되어 있습니다."));
     }
-    return "e2e-api-token";
+    return Promise.resolve("e2e-api-token");
   }
 }

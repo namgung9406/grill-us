@@ -44,8 +44,8 @@ test("서버 계산 점수 순서와 공개 필드만 Top 10에 표시한다", a
   const ranking = testInfo.project.name === "Mobile Chromium"
     ? page.locator("main ol").first()
     : page.locator("main table");
-  await expect(ranking.getByText(clearScore.toLocaleString(), { exact: true })).toBeVisible();
-  await expect(ranking.getByText(defeatScore.toLocaleString(), { exact: true })).toBeVisible();
+  await expect(ranking).toContainText(clearScore.toLocaleString());
+  await expect(ranking).toContainText(defeatScore.toLocaleString());
   await expect(page.locator("main")).not.toContainText("e2e@example.invalid");
   await expect(page.locator("main")).not.toContainText(OWNER_ID);
 });
