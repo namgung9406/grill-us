@@ -1,6 +1,6 @@
 # Task: T02 Leaderboard Endpoints
 
-## Status: pending
+## Status: done
 
 ## Goal
 완결된 게임 통계의 진행 순서와 범위를 서버에서 검증하고 점수를 재계산하여 멱등 저장하며, 인증된 사용자에게 결정론적으로 정렬된 Top 10을 제공한다.
@@ -78,10 +78,10 @@
 - 중복 retry 200, 다른 사용자 충돌 409, 6번째 attempt 429, invalid body도 attempt를 소비하는지 검증한다.
 
 ## Acceptance Criteria
-- [ ] 서버가 인증 principal로만 이름과 사용자 ID를 결정한다.
-- [ ] 점수 공식과 진행 타당성이 서버에서 재계산·검증된다.
-- [ ] 같은 resultId 재시도는 중복 행 없이 같은 결과를 반환한다.
-- [ ] Top 10 정렬과 rate limit이 SQLite 재시작 이후에도 유지된다.
+- [x] 서버가 인증 principal로만 이름과 사용자 ID를 결정한다.
+- [x] 점수 공식과 진행 타당성이 서버에서 재계산·검증된다.
+- [x] 같은 resultId 재시도는 중복 행 없이 같은 결과를 반환한다.
+- [x] Top 10 정렬과 rate limit이 SQLite 재시작 이후에도 유지된다.
 
 ## Validation
 - `npm run test -- server/leaderboard server/routes/leaderboard.test.ts server/db/LeaderboardRepository.test.ts` — API 검증 통과
@@ -100,6 +100,6 @@ Task: T02-leaderboard-endpoints
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending

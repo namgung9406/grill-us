@@ -8,6 +8,8 @@ import { LeaderboardRepository } from "./db/LeaderboardRepository";
 import { migrate } from "./db/migrate";
 import { openDatabase } from "./db/openDatabase";
 import type { ServerEnv } from "./env";
+import { errorMiddleware } from "./http/errors";
+import { createLeaderboardRouter } from "./routes/leaderboard";
 
 export interface AppDependencies {
   databaseFactory: (databasePath: string) => Database.Database;
@@ -56,7 +58,12 @@ export function createApp(
     const verifier = env.LEADERBOARD_DEV_AUTH_BYPASS ? null : verifierFactory(env);
     const authenticate = requirePrincipal(env, verifier);
     const repository = new LeaderboardRepository(database);
-    app.use(express.json({ limit: "16kb" }));
+    app.use("/api/leaderboard", createLeaderboardRouter({
+      repository,
+      authenticate,
+      rateLimitMaximum: env.LEADERBOARD_RATE_LIMIT_MAX,
+    }));
+    app.use(errorMiddleware);
     return { app, database, repository, authenticate };
   } catch (error) {
     database.close();

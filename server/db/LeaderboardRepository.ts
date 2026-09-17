@@ -6,15 +6,22 @@ interface AttemptCountRow {
   count: number;
 }
 
+interface AttemptTimeRow {
+  attempted_at_ms: number;
+}
+
 export class LeaderboardRepository {
+  private readonly database: Database.Database;
   private readonly findResultStatement: Database.Statement<[string], LeaderboardRow>;
   private readonly insertResultStatement: Database.Statement<LeaderboardRow>;
   private readonly listTopStatement: Database.Statement<[number], LeaderboardRow>;
   private readonly insertAttemptStatement: Database.Statement<[string, number]>;
   private readonly deleteAttemptsStatement: Database.Statement<[number]>;
   private readonly countAttemptsStatement: Database.Statement<[string, number], AttemptCountRow>;
+  private readonly oldestAttemptStatement: Database.Statement<[string, number], AttemptTimeRow>;
 
   public constructor(database: Database.Database) {
+    this.database = database;
     this.findResultStatement = database.prepare<[string], LeaderboardRow>(`
       SELECT * FROM leaderboard_results WHERE result_id = ?
     `);
@@ -45,6 +52,13 @@ export class LeaderboardRepository {
       FROM submission_attempts
       WHERE user_oid = ? AND attempted_at_ms >= ?
     `);
+    this.oldestAttemptStatement = database.prepare<[string, number], AttemptTimeRow>(`
+      SELECT attempted_at_ms
+      FROM submission_attempts
+      WHERE user_oid = ? AND attempted_at_ms >= ?
+      ORDER BY attempted_at_ms ASC, id ASC
+      LIMIT 1
+    `);
   }
 
   public findByResultId(resultId: string): LeaderboardRow | null {
@@ -52,12 +66,14 @@ export class LeaderboardRepository {
   }
 
   public insertOrGet(row: LeaderboardRow): InsertResult {
-    const result = this.insertResultStatement.run(row);
-    const storedRow = this.findByResultId(row.result_id);
-    if (storedRow === null) {
-      throw new Error("The leaderboard result was not persisted.");
-    }
-    return { row: storedRow, inserted: result.changes === 1 };
+    return this.runInTransaction(() => {
+      const result = this.insertResultStatement.run(row);
+      const storedRow = this.findByResultId(row.result_id);
+      if (storedRow === null) {
+        throw new Error("The leaderboard result was not persisted.");
+      }
+      return { row: storedRow, inserted: result.changes === 1 };
+    });
   }
 
   public listTop(limit: number): readonly LeaderboardRow[] {
@@ -74,5 +90,13 @@ export class LeaderboardRepository {
 
   public countAttempts(userOid: string, sinceMs: number): number {
     return this.countAttemptsStatement.get(userOid, sinceMs)?.count ?? 0;
+  }
+
+  public findOldestAttempt(userOid: string, sinceMs: number): number | null {
+    return this.oldestAttemptStatement.get(userOid, sinceMs)?.attempted_at_ms ?? null;
+  }
+
+  public runInTransaction<Result>(operation: () => Result): Result {
+    return this.database.transaction(operation)();
   }
 }
