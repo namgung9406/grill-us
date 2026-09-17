@@ -7,9 +7,9 @@
 | Task | Status | Summary | Blueprint |
 | :--- | :--- | :--- | :--- |
 | T01 | `done ✅` | Vite·TypeScript·Tailwind·테스트 도구체인과 엄격한 환경 스키마 구성 | [T01](./T01-project-scaffold.md) |
-| T02 | `in_progress 🔵` | MSAL redirect 인증, 보호 라우팅, 반응형 사이드바 셸 구현 | [T02](./T02-entra-auth-shell.md) |
-| T03 | `pending` | Graph 활성 구성원 선별, 48x48 사진 수명주기와 재시도 구현 | [T03](./T03-graph-profile-assets.md) |
+| T02 | `done ✅` | MSAL redirect 인증, 보호 라우팅, 반응형 사이드바 셸 구현 | [T02](./T02-entra-auth-shell.md) |
+| T03 | `in_progress 🔵` | Graph 활성 구성원 선별, 48x48 사진 수명주기와 재시도 구현 | [T03](./T03-graph-profile-assets.md) |
 | T04 | `pending` | 게임 레지스트리, 카드 시작 흐름, 준비·오류·미등록 화면 구현 | [T04](./T04-games-catalog-preparation.md) |
 
 ## Progress
-- done: 1/4 (active: T02)
+- done: 2/4 (active: T03)

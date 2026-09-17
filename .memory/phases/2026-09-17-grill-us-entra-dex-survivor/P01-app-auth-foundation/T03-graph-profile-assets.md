@@ -1,6 +1,6 @@
 # Task: T03 Graph Profile Assets
 
-## Status: pending
+## Status: done
 
 ## Goal
 게임 시작 시 로그인 사용자와 무작위 활성 내부 구성원 최대 9명의 48x48 사진을 Microsoft Graph에서 준비하고, 실패·취소·복원·해제 시 사진이 메모리 밖에 남지 않도록 한다.
@@ -93,10 +93,10 @@
 - 테스트는 fake Graph adapter, fake sleeper, `URL.createObjectURL/revokeObjectURL` spy를 주입한다.
 
 ## Acceptance Criteria
-- [ ] 시작 전에는 Graph 목록·사진 요청이 발생하지 않는다.
-- [ ] 활성 Member이면서 본인이 아닌 사진 성공자만 최대 9명 반환된다.
-- [ ] 본인 사진 실패는 helmet, 시민 사진 0장은 빈 배열로 정상 완료된다.
-- [ ] 모든 종료·오류·취소 경로에서 생성된 object URL이 정확히 한 번 revoke된다.
+- [x] 시작 전에는 Graph 목록·사진 요청이 발생하지 않는다.
+- [x] 활성 Member이면서 본인이 아닌 사진 성공자만 최대 9명 반환된다.
+- [x] 본인 사진 실패는 helmet, 시민 사진 0장은 빈 배열로 정상 완료된다.
+- [x] 모든 종료·오류·취소 경로에서 생성된 object URL이 정확히 한 번 revoke된다.
 
 ## Validation
 - `npm run test -- src/graph` — Graph 필터·retry·수명주기 테스트 통과
@@ -115,6 +115,6 @@ Task: T03-graph-profile-assets
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending
