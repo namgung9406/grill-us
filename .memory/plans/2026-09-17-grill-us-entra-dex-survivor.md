@@ -12,8 +12,8 @@ Vite + React + TypeScript 기반 SPA에 단일 테넌트 Microsoft Entra ID 인�
 ## Phases
 | Phase | Status | Summary | Blueprint |
 | :--- | :--- | :--- | :--- |
-| P01 | `in_progress` | Vite 도구체인, Entra 인증, 보호 라우팅, Graph 프로필 준비 | [P01](../phases/2026-09-17-grill-us-entra-dex-survivor/P01-app-auth-foundation/phase.md) |
-| P02 | `pending` | 결정론적 게임 규칙, Phaser 전투, 보스 3종, 저장·복원 | [P02](../phases/2026-09-17-grill-us-entra-dex-survivor/P02-dex-survivor-game/phase.md) |
+| P01 | `done` | Vite 도구체인, Entra 인증, 보호 라우팅, Graph 프로필 준비 | [P01](../phases/2026-09-17-grill-us-entra-dex-survivor/P01-app-auth-foundation/phase.md) |
+| P02 | `in_progress` | 결정론적 게임 규칙, Phaser 전투, 보스 3종, 저장·복원 | [P02](../phases/2026-09-17-grill-us-entra-dex-survivor/P02-dex-survivor-game/phase.md) |
 | P03 | `pending` | Entra JWT 검증, SQLite API, Top 10 UI와 제출 재시도 | [P03](../phases/2026-09-17-grill-us-entra-dex-survivor/P03-leaderboard/phase.md) |
 | P04 | `pending` | Playwright 통합, 접근성·반응형·성능·운영 경계 검증 | [P04](../phases/2026-09-17-grill-us-entra-dex-survivor/P04-integration-quality/phase.md) |
 

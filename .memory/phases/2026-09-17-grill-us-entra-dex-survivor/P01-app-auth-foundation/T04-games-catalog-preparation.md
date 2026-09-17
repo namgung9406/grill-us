@@ -92,4 +92,4 @@ Task: T04-games-catalog-preparation
 ## Progress
 - [x] 구현 완료
 - [x] 검증 통과
-- commit: pending
+- commit: ed08de6

@@ -1,6 +1,6 @@
 # Task: T01 Game Domain Contracts
 
-## Status: pending
+## Status: done
 
 ## Goal
 Phaser와 브라우저 API 없이도 시간 진행, 난수, 점수, 업그레이드 상한과 전체 게임 스냅샷을 검증할 수 있는 단일 순수 도메인 계약을 만든다.
@@ -133,10 +133,10 @@ Phaser와 브라우저 API 없이도 시간 진행, 난수, 점수, 업그레이
 - JSON stringify/parse 후 schema 결과가 동일하고 NaN/Infinity/과대 배열/사진 URL 필드가 거부됨을 검증한다. wave spawn remainder, ultimate tick remainder, sword active frame, boss telegraph·shockwave·safe-zone 중간 상태를 roundtrip한 뒤 다음 simulation step이 원본과 동일해야 한다.
 
 ## Acceptance Criteria
-- [ ] Phaser 없이 seed와 입력 delta만으로 동일한 timeline·점수·업그레이드 결과를 재현한다.
-- [ ] `GameSaveV1`은 사진 데이터를 포함하지 않고 전체 전투 상태를 roundtrip한다.
-- [ ] 보스전과 pause 동안 일반 5/10/15분 타이머가 증가하지 않는다.
-- [ ] 모든 업그레이드 상한과 ultimate 소비성 예외가 테스트된다.
+- [x] Phaser 없이 seed와 입력 delta만으로 동일한 timeline·점수·업그레이드 결과를 재현한다.
+- [x] `GameSaveV1`은 사진 데이터를 포함하지 않고 전체 전투 상태를 roundtrip한다.
+- [x] 보스전과 pause 동안 일반 5/10/15분 타이머가 증가하지 않는다.
+- [x] 모든 업그레이드 상한과 ultimate 소비성 예외가 테스트된다.
 
 ## Validation
 - `npm run test -- src/games/dex-survivor/domain` — 순수 도메인 테스트 통과
@@ -155,6 +155,6 @@ Task: T01-game-domain-contracts
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending
