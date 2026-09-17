@@ -55,7 +55,7 @@ export function derivedStats(levels: UpgradeLevels): DerivedPlayerStats {
   };
 }
 
-export function eligibleUpgradeTypes(levels: UpgradeLevels): readonly UpgradeType[] {
+export function eligibleDrops(levels: UpgradeLevels): readonly UpgradeType[] {
   const normalized = normalizeUpgradeLevels(levels);
   const maximums = GAME_BALANCE.upgrades.maxLevels;
   const eligible = PERMANENT_UPGRADES.filter((upgrade) => {
@@ -75,6 +75,8 @@ export function eligibleUpgradeTypes(levels: UpgradeLevels): readonly UpgradeTyp
 
   return [...eligible, "ultimate-charge"];
 }
+
+export const eligibleUpgradeTypes = eligibleDrops;
 
 export function applyUpgrade(player: PlayerSnapshot, upgrade: UpgradeType): PlayerSnapshot {
   if (upgrade === "ultimate-charge") {

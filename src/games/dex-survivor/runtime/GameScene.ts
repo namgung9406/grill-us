@@ -4,14 +4,20 @@ import type { GameProfileAssets } from "@/graph/types";
 
 import { SimulationClock } from "../domain/clock";
 import { GAME_BALANCE } from "../domain/constants";
+import { enemyRadius } from "../domain/enemies";
 import { advanceTimeline } from "../domain/progression";
-import type { BossSnapshot, GameState, Vector2 } from "../domain/types";
+import { XorShift32 } from "../domain/random";
+import type { BossSnapshot, EnemySnapshot, GameState, ProjectileSnapshot, Vector2 } from "../domain/types";
 import { derivedStats } from "../domain/upgrades";
+import { EnemyView } from "./entities/EnemyView";
+import { PlayerView } from "./entities/PlayerView";
 import type { GameBridge, GameCommand, GameViewState } from "./GameBridge";
 import { DesktopInput } from "./input/DesktopInput";
 import { TouchInput, type AimTarget } from "./input/TouchInput";
 import type { InputFrame } from "./input/types";
-import { PlayerSystem } from "./systems/PlayerSystem";
+import { EnemySystem } from "./systems/EnemySystem";
+import { PickupSystem } from "./systems/PickupSystem";
+import { PlayerSystem, type PlayerAction } from "./systems/PlayerSystem";
 import {
   createProceduralTextures,
   PROCEDURAL_TEXTURE_KEYS,
@@ -61,11 +67,18 @@ export class GameScene extends Phaser.Scene {
   readonly #clock = new SimulationClock();
   #state: GameState;
   #playerSystem: PlayerSystem;
+  #random: XorShift32;
+  #enemySystem: EnemySystem;
+  #pickupSystem: PickupSystem;
   #desktopInput: DesktopInput | null = null;
   #touchInput: TouchInput | null = null;
-  #playerSprite: Phaser.GameObjects.Image | null = null;
+  #playerView: PlayerView | null = null;
+  readonly #enemyViews = new Map<string, EnemyView>();
+  readonly #projectileViews = new Map<string, Phaser.GameObjects.Arc>();
+  readonly #pickupViews = new Map<string, Phaser.GameObjects.Arc>();
   #unsubscribeCommands: (() => void) | null = null;
   #ownedTextureKeys: string[] = [];
+  #nextEntityId = 1;
   #visibilityResetRequested = false;
   #cleanedUp = false;
 
@@ -74,6 +87,9 @@ export class GameScene extends Phaser.Scene {
     this.#options = options;
     this.#state = cloneState(options.initialState);
     this.#playerSystem = new PlayerSystem(this.#state.player, this.#state.hitCount);
+    this.#random = new XorShift32(this.#state.rngState);
+    this.#enemySystem = this.#createEnemySystem();
+    this.#pickupSystem = this.#createPickupSystem();
   }
 
   public preload(): void {
@@ -86,10 +102,8 @@ export class GameScene extends Phaser.Scene {
       .tileSprite(0, 0, GAME_BALANCE.arena.width, GAME_BALANCE.arena.height, PROCEDURAL_TEXTURE_KEYS.arena)
       .setOrigin(0);
 
-    const profileKey = profileTextureKey(this.#options.assets.player.userId);
-    const playerTexture = this.textures.exists(profileKey) ? profileKey : PROCEDURAL_TEXTURE_KEYS.player;
-    this.#playerSprite = this.add.image(this.#state.player.position.x, this.#state.player.position.y, playerTexture);
-    this.#playerSprite.setDisplaySize(44, 44).setDepth(10);
+    this.#createPlayerView();
+    this.#syncViews();
 
     this.#desktopInput = new DesktopInput(this.game.canvas);
     this.#touchInput = new TouchInput(this.#options.parent.parentElement ?? this.#options.parent);
@@ -132,10 +146,18 @@ export class GameScene extends Phaser.Scene {
     } else if (command.type === "restart") {
       this.#state = cloneState(this.#options.initialState);
       this.#playerSystem.reset(this.#state.player, this.#state.hitCount);
+      this.#random = new XorShift32(this.#state.rngState);
+      this.#nextEntityId = 1;
+      this.#enemySystem = this.#createEnemySystem();
+      this.#pickupSystem = this.#createPickupSystem();
+      this.#destroyRuntimeViews();
+      this.#playerView?.destroy();
+      this.#playerView = null;
+      this.#createPlayerView();
       this.#clock.reset();
       this.#desktopInput?.reset();
       this.#touchInput?.reset();
-      this.#renderPlayer();
+      this.#syncViews();
       this.#publishViewState();
     }
   };
@@ -165,39 +187,278 @@ export class GameScene extends Phaser.Scene {
       { ...this.#state, player: result.player, hitCount: this.#playerSystem.hitCount },
       deltaMs,
     );
-    this.#renderPlayer();
-    this.#renderActions(result.actions);
+    this.#handlePlayerActions(result.actions);
+
+    const enemyResult = this.#enemySystem.step(deltaMs, {
+      phase: this.#state.phase,
+      normalElapsedMs: this.#state.normalElapsedMs,
+      playerPosition: this.#state.player.position,
+    });
+    this.#state = {
+      ...this.#state,
+      enemies: enemyResult.enemies,
+      projectiles: [...this.#state.projectiles, ...enemyResult.projectiles].slice(
+        0,
+        GAME_BALANCE.limits.projectiles,
+      ),
+      wave: enemyResult.wave,
+      enemyKills: enemyResult.enemyKills,
+    };
+    for (const contact of enemyResult.contacts) {
+      this.#applyPlayerDamage(contact.damage);
+    }
+
+    this.#stepProjectiles(deltaMs);
+    const pickupResult = this.#pickupSystem.step(deltaMs, this.#state.player);
+    this.#state = { ...this.#state, pickups: pickupResult.pickups, player: pickupResult.player };
+    if (pickupResult.collected.length > 0) {
+      this.#playerSystem.reset(pickupResult.player, this.#state.hitCount);
+    }
+    if (this.#state.player.hp === 0) {
+      this.#state = { ...this.#state, phase: "defeated" };
+    }
+    this.#state = {
+      ...this.#state,
+      enemies: this.#enemySystem.enemies,
+      enemyKills: this.#enemySystem.enemyKills,
+      rngState: this.#random.state(),
+    };
+    this.#syncViews();
     this.#publishViewState();
   }
 
-  #renderPlayer(): void {
-    this.#playerSprite?.setPosition(this.#state.player.position.x, this.#state.player.position.y);
-    this.#playerSprite?.setRotation(this.#state.player.facingRadians + Math.PI / 2);
-    this.#playerSprite?.setAlpha(this.#state.player.invulnerableRemainingMs > 0 ? 0.68 : 1);
+  #createEnemySystem(): EnemySystem {
+    return new EnemySystem({
+      random: this.#random,
+      enemies: this.#state.enemies,
+      wave: this.#state.wave,
+      enemyKills: this.#state.enemyKills,
+      createId: () => this.#createEntityId(),
+    });
   }
 
-  #renderActions(actions: readonly { type: string; origin?: Vector2; direction?: Vector2; range?: number; radius?: number }[]): void {
+  #createPickupSystem(): PickupSystem {
+    return new PickupSystem(this.#random, this.#state.pickups, () => this.#createEntityId());
+  }
+
+  #createPlayerView(): void {
+    const profileKey = profileTextureKey(this.#options.assets.player.userId);
+    const playerTexture = this.textures.exists(profileKey) ? profileKey : PROCEDURAL_TEXTURE_KEYS.player;
+    this.#playerView = new PlayerView(this, playerTexture, this.#state.player);
+    this.#playerView.object.setDepth(10);
+  }
+
+  #createEntityId(): string {
+    let candidate: string;
+    do {
+      candidate = `20000000-0000-4000-8000-${this.#nextEntityId.toString(16).padStart(12, "0")}`;
+      this.#nextEntityId += 1;
+    } while (
+      this.#state.enemies.some(({ id }) => id === candidate) ||
+      this.#state.projectiles.some(({ id }) => id === candidate) ||
+      this.#state.pickups.some(({ id }) => id === candidate)
+    );
+    return candidate;
+  }
+
+  #handlePlayerActions(actions: readonly PlayerAction[]): void {
     for (const action of actions) {
-      if (action.type === "gun" && action.origin && action.direction) {
-        const flash = this.add.image(
-          action.origin.x + action.direction.x * 28,
-          action.origin.y + action.direction.y * 28,
-          PROCEDURAL_TEXTURE_KEYS.projectile,
+      if (action.type === "gun") {
+        if (this.#state.projectiles.length < GAME_BALANCE.limits.projectiles) {
+          const projectile: ProjectileSnapshot = {
+            id: this.#createEntityId(),
+            owner: "player",
+            position: { ...action.origin },
+            velocity: { x: action.direction.x * action.speed, y: action.direction.y * action.speed },
+            damage: action.damage,
+            remainingRange: action.range,
+            radius: 5,
+          };
+          this.#state = { ...this.#state, projectiles: [...this.#state.projectiles, projectile] };
+        }
+      } else if (action.type === "sword") {
+        const targets = this.#enemySystem.enemies.filter((enemy) => this.#isInSwordArc(enemy, action));
+        for (const enemy of targets) {
+          this.#damageEnemy(enemy.id, action.damage);
+        }
+        this.#showAttackRing(action.origin, action.range);
+      } else if (action.type === "sword-storm") {
+        const targets = this.#enemySystem.enemies.filter(
+          (enemy) => this.#distance(enemy.position, action.origin) <= action.radius + enemyRadius(enemy.type),
         );
-        this.tweens.add({
-          targets: flash,
-          x: action.origin.x + action.direction.x * Math.min(action.range ?? 80, 80),
-          y: action.origin.y + action.direction.y * Math.min(action.range ?? 80, 80),
-          alpha: 0,
-          duration: 80,
-          onComplete: () => flash.destroy(),
-        });
-      } else if ((action.type === "sword" || action.type === "sword-storm") && action.origin) {
-        const ring = this.add.circle(action.origin.x, action.origin.y, action.radius ?? action.range ?? 90, 0x4dd5b8, 0.15);
-        ring.setStrokeStyle(3, 0xffffff, 0.8).setDepth(9);
-        this.tweens.add({ targets: ring, alpha: 0, duration: 120, onComplete: () => ring.destroy() });
+        for (const enemy of targets) {
+          this.#damageEnemy(enemy.id, action.damage);
+        }
+        this.#showAttackRing(action.origin, action.radius);
+      } else if (action.type === "ultimate") {
+        for (const enemy of this.#enemySystem.enemies) {
+          this.#damageEnemy(enemy.id, action.damage);
+        }
+        this.#showAttackRing(this.#state.player.position, Math.max(GAME_BALANCE.arena.width, GAME_BALANCE.arena.height));
       }
     }
+  }
+
+  #showAttackRing(origin: Vector2, radius: number): void {
+    const ring = this.add.circle(origin.x, origin.y, radius, 0x4dd5b8, 0.15);
+    ring.setStrokeStyle(3, 0xffffff, 0.8).setDepth(9);
+    this.tweens.add({ targets: ring, alpha: 0, duration: 120, onComplete: () => ring.destroy() });
+  }
+
+  #isInSwordArc(enemy: EnemySnapshot, action: Extract<PlayerAction, { type: "sword" }>): boolean {
+    const offset = { x: enemy.position.x - action.origin.x, y: enemy.position.y - action.origin.y };
+    const distance = Math.hypot(offset.x, offset.y);
+    if (distance > action.range + enemyRadius(enemy.type)) {
+      return false;
+    }
+    if (distance === 0) {
+      return true;
+    }
+    const alignment = (offset.x * action.direction.x + offset.y * action.direction.y) / distance;
+    return alignment >= Math.cos(action.arcRadians / 2);
+  }
+
+  #stepProjectiles(deltaMs: number): void {
+    const remaining: ProjectileSnapshot[] = [];
+    for (const projectile of this.#state.projectiles) {
+      const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
+      const travelDistance = Math.min(projectile.remainingRange, (speed * deltaMs) / 1000);
+      const scale = speed === 0 ? 0 : travelDistance / speed;
+      const next: ProjectileSnapshot = {
+        ...projectile,
+        position: {
+          x: projectile.position.x + projectile.velocity.x * scale,
+          y: projectile.position.y + projectile.velocity.y * scale,
+        },
+        remainingRange: Math.max(0, projectile.remainingRange - travelDistance),
+      };
+
+      if (next.owner === "player") {
+        const hit = this.#enemySystem.enemies.find(
+          (enemy) => this.#distance(next.position, enemy.position) <= next.radius + enemyRadius(enemy.type),
+        );
+        if (hit) {
+          this.#damageEnemy(hit.id, next.damage);
+          continue;
+        }
+      } else if (this.#distance(next.position, this.#state.player.position) <= next.radius + 20) {
+        this.#applyPlayerDamage(next.damage);
+        continue;
+      }
+
+      if (next.remainingRange > 0) {
+        remaining.push(next);
+      }
+    }
+    this.#state = { ...this.#state, projectiles: remaining };
+  }
+
+  #damageEnemy(enemyId: string, damage: number): void {
+    const result = this.#enemySystem.damageEnemy(enemyId, damage);
+    if (result.killed !== null) {
+      this.#pickupSystem.tryDrop(result.killed.position, this.#state.player.upgrades);
+    }
+    this.#state = {
+      ...this.#state,
+      enemies: result.enemies,
+      enemyKills: result.enemyKills,
+      pickups: this.#pickupSystem.pickups,
+    };
+  }
+
+  #applyPlayerDamage(damage: number): void {
+    const result = this.#playerSystem.takeDamage(damage);
+    this.#state = { ...this.#state, player: result.player, hitCount: result.hitCount };
+  }
+
+  #distance(left: Vector2, right: Vector2): number {
+    return Math.hypot(left.x - right.x, left.y - right.y);
+  }
+
+  #syncViews(): void {
+    this.#playerView?.sync(this.#state.player);
+    this.#syncEnemyViews();
+    this.#syncProjectileViews();
+    this.#syncPickupViews();
+  }
+
+  #syncEnemyViews(): void {
+    const activeIds = new Set(this.#state.enemies.map(({ id }) => id));
+    for (const [id, view] of this.#enemyViews) {
+      if (!activeIds.has(id)) {
+        view.destroy();
+        this.#enemyViews.delete(id);
+      }
+    }
+    for (const enemy of this.#state.enemies) {
+      const existing = this.#enemyViews.get(enemy.id);
+      if (existing) {
+        existing.sync(enemy);
+      } else {
+        const view = new EnemyView(this, enemy);
+        view.object.setDepth(5);
+        this.#enemyViews.set(enemy.id, view);
+      }
+    }
+  }
+
+  #syncProjectileViews(): void {
+    const activeIds = new Set(this.#state.projectiles.map(({ id }) => id));
+    for (const [id, view] of this.#projectileViews) {
+      if (!activeIds.has(id)) {
+        view.destroy();
+        this.#projectileViews.delete(id);
+      }
+    }
+    for (const projectile of this.#state.projectiles) {
+      let view = this.#projectileViews.get(projectile.id);
+      if (!view) {
+        view = this.add
+          .circle(
+            projectile.position.x,
+            projectile.position.y,
+            projectile.radius,
+            projectile.owner === "player" ? 0x8ad8ff : 0xf26d6d,
+          )
+          .setDepth(8);
+        this.#projectileViews.set(projectile.id, view);
+      }
+      view.setPosition(projectile.position.x, projectile.position.y);
+    }
+  }
+
+  #syncPickupViews(): void {
+    const activeIds = new Set(this.#state.pickups.map(({ id }) => id));
+    for (const [id, view] of this.#pickupViews) {
+      if (!activeIds.has(id)) {
+        view.destroy();
+        this.#pickupViews.delete(id);
+      }
+    }
+    for (const pickup of this.#state.pickups) {
+      let view = this.#pickupViews.get(pickup.id);
+      if (!view) {
+        view = this.add.circle(pickup.position.x, pickup.position.y, 10, 0xffd166).setDepth(4);
+        view.setStrokeStyle(2, 0xffffff, 0.85);
+        this.#pickupViews.set(pickup.id, view);
+      }
+      view.setPosition(pickup.position.x, pickup.position.y);
+    }
+  }
+
+  #destroyRuntimeViews(): void {
+    for (const view of this.#enemyViews.values()) {
+      view.destroy();
+    }
+    this.#enemyViews.clear();
+    for (const view of this.#projectileViews.values()) {
+      view.destroy();
+    }
+    this.#projectileViews.clear();
+    for (const view of this.#pickupViews.values()) {
+      view.destroy();
+    }
+    this.#pickupViews.clear();
   }
 
   #publishViewState(): void {
@@ -231,6 +492,9 @@ export class GameScene extends Phaser.Scene {
     this.#desktopInput = null;
     this.#touchInput?.destroy();
     this.#touchInput = null;
+    this.#destroyRuntimeViews();
+    this.#playerView?.destroy();
+    this.#playerView = null;
     for (const key of this.#ownedTextureKeys) {
       if (this.textures.exists(key)) {
         this.textures.remove(key);

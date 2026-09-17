@@ -1,6 +1,6 @@
 # Task: T03 Enemies and Upgrades
 
-## Status: pending
+## Status: done
 
 ## Goal
 일반 적 4종과 30초 밀도 곡선을 결정론적으로 생성하고, 15% drop·자동 획득·상한형 성장과 플레이어 외형 변화를 완성한다.
@@ -47,6 +47,7 @@
   - `src/games/dex-survivor/runtime/systems/PickupSystem.ts` :: `PickupSystem` — 15% drop/auto collect/ttl; new
   - `src/games/dex-survivor/runtime/entities/PlayerView.ts` :: `applyAppearanceLevel` — armor/weapon/trail/core; modify
   - `src/games/dex-survivor/domain/upgrades.ts` :: `eligibleDrops` — 상한 제외; modify
+  - `src/games/dex-survivor/runtime/GameScene.ts` :: `GameScene` — enemy/pickup systems and views integration; modify
 
 #### Details
 - 적 사망마다 PRNG `next()<0.15`; pickup ttl 15,000ms, 자동 획득 반경 48px.
@@ -65,14 +66,22 @@
 - 고정 난수열로 정확히 15% 판단 경계와 max upgrade 제외, ultimate 즉시 100을 검증한다.
 
 ## Acceptance Criteria
-- [ ] 4종 적이 지정 역할과 수치로 행동하고 splitter-small은 재분열하지 않는다.
-- [ ] 30초마다 밀도가 증가하며 10분 이후 공식과 동시 적 상한을 지킨다.
-- [ ] drop과 upgrade 선택은 seed로 재현되고 상한을 초과하지 않는다.
-- [ ] 성장 외형이 충돌 body나 저장 수치를 변경하지 않는다.
+- [x] 4종 적이 지정 역할과 수치로 행동하고 splitter-small은 재분열하지 않는다.
+- [x] 30초마다 밀도가 증가하며 10분 이후 공식과 동시 적 상한을 지킨다.
+- [x] drop과 upgrade 선택은 seed로 재현되고 상한을 초과하지 않는다.
+- [x] 성장 외형이 충돌 body나 저장 수치를 변경하지 않는다.
+- [x] 적·투사체·pickup과 성장 외형이 실제 Phaser scene 및 직렬화 상태에 동기화된다.
 
 ## Validation
 - `npm run test -- src/games/dex-survivor/domain/waves.test.ts src/games/dex-survivor/runtime/systems/EnemySystem.test.ts src/games/dex-survivor/runtime/systems/PickupSystem.test.ts` — 적·성장 테스트 통과
 - `npm run typecheck && npm run lint` — 오류 0건
+
+## Execution Research (2026-09-17)
+- 실제 통합 대상은 `GameScene` 한 곳이며, `EnemySystem`, `PickupSystem`, `EnemyView`, `PlayerView` 구현과 단위 테스트는 이미 존재한다.
+- `PlayerSystem.step`은 gun/sword/sword-storm/ultimate의 damage 및 판정 geometry를 action으로 반환하고, `EnemySystem.damageEnemy`는 사망 스냅샷과 splitter 자식을 한 번에 반환한다.
+- `GameState`는 `rngState`, enemies, projectiles, pickups, wave, enemyKills를 모두 직렬화하므로 scene이 공유 `XorShift32`와 시스템을 소유하고 매 tick 스냅샷을 되써야 한다.
+- 구현 순서는 player action 판정, enemy step/contact, projectile 이동·충돌, pickup ttl·자동수집, view reconciliation이며 보스 damage 로직은 T03 범위 밖이다.
+- Decomposition verdict: atomic. 단일 scene lifecycle 안에서 같은 tick state를 일관되게 갱신해야 하는 응집된 변경이며 별도 scenario skill root 또는 Breakdown Hints는 전달되지 않았다.
 
 ## Commit Message
 ```text
@@ -87,6 +96,6 @@ Task: T03-enemies-upgrades
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending
