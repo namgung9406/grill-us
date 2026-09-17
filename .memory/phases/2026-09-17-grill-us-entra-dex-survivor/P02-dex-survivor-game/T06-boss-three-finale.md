@@ -1,6 +1,6 @@
 # Task: T06 Boss Three Finale
 
-## Status: pending
+## Status: done
 
 ## Goal
 일반 타이머 15분에 중앙 `DEX` 문구와 다면체 코어가 있는 우주선을 등장시키고, 50% 2페이즈와 10% 약화 보스 동시 재등장, 3초 복귀 카운트다운까지 완결한다.
@@ -40,6 +40,10 @@
   - `src/games/dex-survivor/runtime/bosses/FinaleAddsSystem.ts` :: `FinaleAddsSystem` — weakened boss1/boss2; new
   - `src/games/dex-survivor/ui/ResumeCountdown.tsx` :: `ResumeCountdown` — 3초 표시; new
   - `src/games/dex-survivor/runtime/GameScene.ts` :: `finale-adds/countdown/clear`; modify
+  - `src/games/dex-survivor/runtime/GameBridge.ts` :: `GameViewState` — countdown snapshot; modify
+  - `src/games/dex-survivor/runtime/GameBridge.test.ts` :: countdown snapshot regression; modify
+  - `src/games/dex-survivor/ui/GameHud.tsx` :: `ResumeCountdown` integration; modify
+  - `src/games/dex-survivor/DexSurvivorGame.tsx` :: initial countdown snapshot; modify
 
 #### Details
 - weakened boss1은 시민 사진 없이 가상 구조 node 3개와 tentacle 3개를 사용하고 body/tentacle max hp를 원본의 60%, damage를 70%로 적용한다. 구출 수는 변경하지 않는다.
@@ -61,10 +65,18 @@
 - 약화 수치 60%/70%, boss2 순서 유지, boss1 시민·구출 수 불변, 양쪽 처치 필요를 검증한다.
 
 ## Acceptance Criteria
-- [ ] 15분 보스는 `DEX`와 다면체 코어가 명확하고 50%에서 강화된다.
-- [ ] 네 패턴 모두 예고가 있고 phase2 조합이 결정론적으로 반복된다.
-- [ ] 10%에서 약화 보스 둘이 동시에 등장하고 핵심 기믹을 유지한다.
-- [ ] 최종 보스는 기존 hp·2페이즈로 한 번만 복귀하며 3초 후 전투를 재개한다.
+- [x] 15분 보스는 `DEX`와 다면체 코어가 명확하고 50%에서 강화된다.
+- [x] 네 패턴 모두 예고가 있고 phase2 조합이 결정론적으로 반복된다.
+- [x] 10%에서 약화 보스 둘이 동시에 등장하고 핵심 기믹을 유지한다.
+- [x] 최종 보스는 기존 hp·2페이즈로 한 번만 복귀하며 3초 후 전투를 재개한다.
+
+## Execution Research (2026-09-17)
+- `domain/types.ts`, `domain/constants.ts`, `domain/schemas.ts`에 boss3/finale 저장 필드와 수치가 이미 예약되어 있으므로 공개 저장 계약은 확장하지 않는다.
+- `GameScene`의 기존 T04/T05 경로는 `BossOneSystem`/`BossTwoSystem`이 판정하고 scene이 player damage, projectile, view를 연결한다. T06도 같은 소유 경계를 사용한다.
+- finale adds는 기존 두 시스템을 합성해 60% hp, 70% damage, boss2 part 순서를 보존하며, 일반 enemy/rescue/boss time 카운터에는 접근하지 않는다.
+- wall-clock countdown 동안 `SimulationClock`과 `advanceTimeline`을 호출하지 않고 `GameViewState`에는 `number | null`로 publish한다.
+- 영향 단위는 하나의 boss3 상태기계와 해당 scene/HUD 어댑터이며, 중간 상태가 저장 snapshot으로 결합되므로 별도 task로 분리하지 않는 atomic 변경으로 판정했다.
+- 회귀 검증은 T03 enemy/pickup, T04 boss1/rescue, T05 boss2/domain boss 테스트와 typecheck/lint를 포함한다.
 
 ## Validation
 - `npm run test -- src/games/dex-survivor/runtime/bosses/BossThreeSystem.test.ts src/games/dex-survivor/runtime/bosses/BulletPatterns.test.ts src/games/dex-survivor/runtime/bosses/FinaleAddsSystem.test.ts` — 최종 보스 규칙 통과
@@ -83,6 +95,6 @@ Task: T06-boss-three-finale
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending

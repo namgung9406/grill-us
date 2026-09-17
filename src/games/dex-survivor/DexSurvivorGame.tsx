@@ -76,6 +76,7 @@ function createInitialViewState(state: GameState): GameViewState {
     phase: state.phase,
     bossHp: null,
     bossMaxHp: null,
+    resumeCountdownMs: null,
   };
 }
 

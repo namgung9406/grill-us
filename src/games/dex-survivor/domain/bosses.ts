@@ -2,6 +2,7 @@ import { GAME_BALANCE } from "./constants";
 import type {
   BossOneSnapshot,
   BossOneTentacleSnapshot,
+  BossThreeSnapshot,
   BossTwoPartsSnapshot,
   BossTwoSnapshot,
   BossTwoStage,
@@ -10,8 +11,10 @@ import type {
 
 export const BOSS_ONE_BALANCE = GAME_BALANCE.bosses.bossOne;
 export const BOSS_TWO_BALANCE = GAME_BALANCE.bosses.bossTwo;
+export const BOSS_THREE_BALANCE = GAME_BALANCE.bosses.bossThree;
 
 export type BossTwoPartKey = keyof BossTwoPartsSnapshot;
+export type BossThreePhase = BossThreeSnapshot["phase"];
 
 export const BOSS_TWO_PART_LAYOUT = {
   shield: { offset: { x: -104, y: 0 }, radius: 48 },
@@ -81,6 +84,56 @@ export function createBossTwoState(variant: BossTwoSnapshot["variant"] = "normal
       leftLeg: { hp: BOSS_TWO_BALANCE.partHp.leftLeg, destroyed: false },
       rightLeg: { hp: BOSS_TWO_BALANCE.partHp.rightLeg, destroyed: false },
       core: { hp: BOSS_TWO_BALANCE.partHp.core, destroyed: false },
+    },
+  };
+}
+
+export function createBossThreeState(): BossThreeSnapshot {
+  return {
+    kind: "boss3",
+    position: { x: GAME_BALANCE.arena.width / 2, y: GAME_BALANCE.arena.height / 2 },
+    hp: BOSS_THREE_BALANCE.hp,
+    phase: 1,
+    patternIndex: 0,
+    patternCooldownMs: BOSS_THREE_BALANCE.minimumTelegraphMs,
+    savedHp: 0,
+    finaleTriggered: false,
+    resumeCountdownMs: 0,
+    finaleBossOne: null,
+    finaleBossTwo: null,
+  };
+}
+
+export function createFinaleBossOneState(position: Vector2): BossOneSnapshot {
+  const tentacles: BossOneTentacleSnapshot[] = Array.from({ length: 3 }, (_, index) => ({
+    id: tentacleId(index),
+    citizenUserId: null,
+    hp: BOSS_ONE_BALANCE.tentacleHp * BOSS_THREE_BALANCE.weakenedHpMultiplier,
+    angleRadians: (index * Math.PI * 2) / 3,
+    attackCooldownMs: 0,
+    destroyed: false,
+  }));
+  return {
+    kind: "boss1",
+    variant: "finale",
+    hp: BOSS_ONE_BALANCE.hp * BOSS_THREE_BALANCE.weakenedHpMultiplier,
+    position: { ...position },
+    attackCooldownMs: 0,
+    tentacles,
+  };
+}
+
+export function createFinaleBossTwoState(position: Vector2): BossTwoSnapshot {
+  const boss = createBossTwoState("finale");
+  return {
+    ...boss,
+    position: { ...position },
+    parts: {
+      shield: { hp: boss.parts.shield.hp * BOSS_THREE_BALANCE.weakenedHpMultiplier, destroyed: false },
+      maceArm: { hp: boss.parts.maceArm.hp * BOSS_THREE_BALANCE.weakenedHpMultiplier, destroyed: false },
+      leftLeg: { hp: boss.parts.leftLeg.hp * BOSS_THREE_BALANCE.weakenedHpMultiplier, destroyed: false },
+      rightLeg: { hp: boss.parts.rightLeg.hp * BOSS_THREE_BALANCE.weakenedHpMultiplier, destroyed: false },
+      core: { hp: boss.parts.core.hp * BOSS_THREE_BALANCE.weakenedHpMultiplier, destroyed: false },
     },
   };
 }

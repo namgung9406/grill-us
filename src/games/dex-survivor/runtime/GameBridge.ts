@@ -11,6 +11,7 @@ export interface GameViewState {
   phase: GamePhase;
   bossHp: number | null;
   bossMaxHp: number | null;
+  resumeCountdownMs: number | null;
 }
 
 export type GameCommand = { type: "pause" } | { type: "resume" } | { type: "restart" };

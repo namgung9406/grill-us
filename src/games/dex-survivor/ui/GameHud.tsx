@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 
 import type { GamePhase } from "../domain/types";
 import type { GameBridge } from "../runtime/GameBridge";
+import { ResumeCountdown } from "./ResumeCountdown";
 
 interface GameHudProps {
   bridge: GameBridge;
@@ -45,6 +46,7 @@ export function GameHud({ bridge, onExit }: GameHudProps) {
         paddingLeft: "max(0.75rem, env(safe-area-inset-left))",
       }}
     >
+      <ResumeCountdown remainingMs={state.resumeCountdownMs} />
       <div className="flex items-start justify-between gap-3">
         <div className="grid gap-2 text-xs font-bold [text-shadow:0_1px_2px_#000]">
           <div className="w-44" aria-label={`체력 ${state.hp} / ${state.maxHp}`}>

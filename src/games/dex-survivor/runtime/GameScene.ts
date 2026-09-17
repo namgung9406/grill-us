@@ -2,7 +2,13 @@ import Phaser from "phaser";
 
 import type { GameProfileAssets } from "@/graph/types";
 
-import { activeBossTwoParts, bossOneCitizenPosition, createBossOneState, createBossTwoState } from "../domain/bosses";
+import {
+  activeBossTwoParts,
+  bossOneCitizenPosition,
+  createBossOneState,
+  createBossThreeState,
+  createBossTwoState,
+} from "../domain/bosses";
 import { SimulationClock } from "../domain/clock";
 import { GAME_BALANCE } from "../domain/constants";
 import { enemyRadius } from "../domain/enemies";
@@ -15,6 +21,9 @@ import { BossOneSystem } from "./bosses/BossOneSystem";
 import { BossOneView } from "./bosses/BossOneView";
 import { BossTwoSystem } from "./bosses/BossTwoSystem";
 import { BossTwoView } from "./bosses/BossTwoView";
+import { BossThreeSystem } from "./bosses/BossThreeSystem";
+import { BossThreeView } from "./bosses/BossThreeView";
+import { FinaleAddsSystem, resumeCountdownRemaining } from "./bosses/FinaleAddsSystem";
 import { CitizenView } from "./entities/CitizenView";
 import { EnemyView } from "./entities/EnemyView";
 import { PlayerView } from "./entities/PlayerView";
@@ -83,6 +92,8 @@ export class GameScene extends Phaser.Scene {
   #pickupSystem: PickupSystem;
   #bossOneSystem: BossOneSystem | null = null;
   #bossTwoSystem: BossTwoSystem | null = null;
+  #bossThreeSystem: BossThreeSystem | null = null;
+  #finaleAddsSystem: FinaleAddsSystem | null = null;
   #desktopInput: DesktopInput | null = null;
   #touchInput: TouchInput | null = null;
   #playerView: PlayerView | null = null;
@@ -91,11 +102,13 @@ export class GameScene extends Phaser.Scene {
   readonly #pickupViews = new Map<string, Phaser.GameObjects.Arc>();
   #bossOneView: BossOneView | null = null;
   #bossTwoView: BossTwoView | null = null;
+  #bossThreeView: BossThreeView | null = null;
   readonly #citizenViews = new Map<string, CitizenView>();
   #unsubscribeCommands: (() => void) | null = null;
   #ownedTextureKeys: string[] = [];
   #nextEntityId = 1;
   #visibilityResetRequested = false;
+  #resumeCountdownDeadlineMs: number | null = null;
   #cleanedUp = false;
 
   public constructor(options: GameSceneOptions) {
@@ -108,6 +121,8 @@ export class GameScene extends Phaser.Scene {
     this.#pickupSystem = this.#createPickupSystem();
     this.#ensureBossOneBattle();
     this.#ensureBossTwoBattle();
+    this.#ensureBossThreeBattle();
+    this.#ensureFinaleAddsBattle();
   }
 
   public preload(): void {
@@ -133,6 +148,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   public override update(_time: number, deltaMs: number): void {
+    if (this.#isResumeCountdownActive()) {
+      this.#clock.reset();
+      this.#updateResumeCountdown(performance.now());
+      return;
+    }
     if (this.#state.phase === "paused" || this.#state.phase === "defeated" || this.#state.phase === "cleared") {
       this.#clock.reset();
       return;
@@ -148,7 +168,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   readonly #onCommand = (command: GameCommand): void => {
-    if (command.type === "pause" && this.#state.phase !== "paused") {
+    if (command.type === "pause" && this.#state.phase !== "paused" && !this.#isResumeCountdownActive()) {
       if (this.#state.phase === "defeated" || this.#state.phase === "cleared") {
         return;
       }
@@ -170,8 +190,13 @@ export class GameScene extends Phaser.Scene {
       this.#pickupSystem = this.#createPickupSystem();
       this.#bossOneSystem = null;
       this.#bossTwoSystem = null;
+      this.#bossThreeSystem = null;
+      this.#finaleAddsSystem = null;
+      this.#resumeCountdownDeadlineMs = null;
       this.#ensureBossOneBattle();
       this.#ensureBossTwoBattle();
+      this.#ensureBossThreeBattle();
+      this.#ensureFinaleAddsBattle();
       this.#destroyRuntimeViews();
       this.#playerView?.destroy();
       this.#playerView = null;
@@ -205,21 +230,38 @@ export class GameScene extends Phaser.Scene {
           .filter(({ active }) => active)
           .map(({ id, position }) => ({ id, position })),
       );
-    } else if (this.#state.boss !== null) {
-      targets.push({ id: `boss-${this.#state.boss.kind}`, position: this.#state.boss.position });
+    } else if (this.#finaleAddsSystem !== null) {
+      targets.push(
+        ...this.#finaleAddsSystem.damageTargets
+          .filter(({ active }) => active)
+          .map(({ id, position }) => ({ id, position })),
+      );
+    } else if (this.#bossThreeSystem !== null) {
+      targets.push(...this.#bossThreeSystem.damageTargets.map(({ id, position }) => ({ id, position })));
     }
     const input = combineInput(
       this.#desktopInput.readFrame(),
       this.#touchInput.readFrame(this.#state.player.position, targets),
     );
     const result = this.#playerSystem.step(deltaMs, input);
+    const phaseBeforeAdvance = this.#state.phase;
     this.#state = advanceTimeline(
       { ...this.#state, player: result.player, hitCount: this.#playerSystem.hitCount },
       deltaMs,
     );
+    if (phaseBeforeAdvance === "finale-adds") {
+      this.#state = { ...this.#state, currentBossElapsedMs: this.#state.currentBossElapsedMs + deltaMs };
+    }
     this.#ensureBossOneBattle();
     this.#ensureBossTwoBattle();
+    this.#ensureBossThreeBattle();
+    this.#ensureFinaleAddsBattle();
     this.#handlePlayerActions(result.actions);
+    if (this.#isResumeCountdownActive() || this.#state.phase === "cleared") {
+      this.#syncViews();
+      this.#publishViewState();
+      return;
+    }
 
     const enemyResult = this.#enemySystem.step(deltaMs, {
       phase: this.#state.phase,
@@ -241,9 +283,16 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.#stepBossOne(deltaMs);
-  this.#stepBossTwo(deltaMs);
+    this.#stepBossTwo(deltaMs);
+    this.#stepBossThree(deltaMs);
+    this.#stepFinaleAdds(deltaMs);
 
     this.#stepProjectiles(deltaMs);
+    if (this.#isResumeCountdownActive()) {
+      this.#syncViews();
+      this.#publishViewState();
+      return;
+    }
     const pickupResult = this.#pickupSystem.step(deltaMs, this.#state.player);
     this.#state = { ...this.#state, pickups: pickupResult.pickups, player: pickupResult.player };
     if (pickupResult.collected.length > 0) {
@@ -306,6 +355,42 @@ export class GameScene extends Phaser.Scene {
     this.#state = { ...this.#state, boss };
   }
 
+  #ensureBossThreeBattle(): void {
+    if (
+      (this.#state.phase !== "boss3" && this.#state.phase !== "finale-adds") ||
+      this.#bossThreeSystem !== null
+    ) {
+      return;
+    }
+    const boss = this.#state.boss?.kind === "boss3" ? this.#state.boss : createBossThreeState();
+    this.#bossThreeSystem = new BossThreeSystem({
+      boss,
+      seed: this.#state.seed,
+      activeHazards: this.#state.activeHazards,
+      createId: () => this.#createEntityId(),
+    });
+    this.#state = { ...this.#state, boss };
+  }
+
+  #ensureFinaleAddsBattle(): void {
+    if (
+      this.#state.phase !== "finale-adds" ||
+      this.#finaleAddsSystem !== null ||
+      this.#state.boss?.kind !== "boss3" ||
+      this.#state.boss.resumeCountdownMs > 0 ||
+      this.#state.boss.finaleBossOne === null ||
+      this.#state.boss.finaleBossTwo === null
+    ) {
+      return;
+    }
+    this.#finaleAddsSystem = new FinaleAddsSystem({
+      bossOne: this.#state.boss.finaleBossOne,
+      bossTwo: this.#state.boss.finaleBossTwo,
+      activeHazards: this.#state.activeHazards,
+      createId: () => this.#createEntityId(),
+    });
+  }
+
   #createPlayerView(): void {
     const profileKey = profileTextureKey(this.#options.assets.player.userId);
     const playerTexture = this.textures.exists(profileKey) ? profileKey : PROCEDURAL_TEXTURE_KEYS.player;
@@ -359,6 +444,18 @@ export class GameScene extends Phaser.Scene {
         for (const target of bossTwoTargets ?? []) {
           this.#damageBossTwo(target.id, action.damage);
         }
+        const finaleTargets = this.#finaleAddsSystem?.damageTargets.filter(
+          (target) => target.active && this.#isPositionInSwordArc(target.position, target.radius, action),
+        );
+        for (const target of finaleTargets ?? []) {
+          this.#damageFinaleAdd(target.id, action.damage);
+        }
+        const bossThreeTargets = this.#bossThreeSystem?.damageTargets.filter((target) =>
+          this.#isPositionInSwordArc(target.position, target.radius, action),
+        );
+        for (const target of bossThreeTargets ?? []) {
+          this.#damageBossThree(target.id, action.damage);
+        }
         this.#showAttackRing(action.origin, action.range);
       } else if (action.type === "sword-storm") {
         const targets = this.#enemySystem.enemies.filter(
@@ -380,6 +477,18 @@ export class GameScene extends Phaser.Scene {
         for (const target of bossTwoTargets ?? []) {
           this.#damageBossTwo(target.id, action.damage);
         }
+        const finaleTargets = this.#finaleAddsSystem?.damageTargets.filter(
+          (target) => target.active && this.#distance(target.position, action.origin) <= action.radius + target.radius,
+        );
+        for (const target of finaleTargets ?? []) {
+          this.#damageFinaleAdd(target.id, action.damage);
+        }
+        const bossThreeTargets = this.#bossThreeSystem?.damageTargets.filter(
+          (target) => this.#distance(target.position, action.origin) <= action.radius + target.radius,
+        );
+        for (const target of bossThreeTargets ?? []) {
+          this.#damageBossThree(target.id, action.damage);
+        }
         this.#showAttackRing(action.origin, action.radius);
       } else if (action.type === "ultimate") {
         for (const enemy of this.#enemySystem.enemies) {
@@ -393,6 +502,15 @@ export class GameScene extends Phaser.Scene {
           this.#bossTwoSystem?.damageTargets.filter(({ active }) => active).map(({ id }) => id) ?? [];
         for (const targetId of bossTwoTargetIds) {
           this.#damageBossTwo(targetId, action.damage);
+        }
+        const finaleTargetIds = this.#finaleAddsSystem?.damageTargets
+          .filter(({ active }) => active)
+          .map(({ id }) => id) ?? [];
+        for (const targetId of finaleTargetIds) {
+          this.#damageFinaleAdd(targetId, action.damage);
+        }
+        for (const target of this.#bossThreeSystem?.damageTargets ?? []) {
+          this.#damageBossThree(target.id, action.damage);
         }
         this.#showAttackRing(this.#state.player.position, Math.max(GAME_BALANCE.arena.width, GAME_BALANCE.arena.height));
       }
@@ -461,6 +579,24 @@ export class GameScene extends Phaser.Scene {
           this.#damageBossTwo(bossTwoTarget.id, next.damage);
           continue;
         }
+        const finaleTarget = this.#finaleAddsSystem?.projectileTarget(next.position, next.radius);
+        if (finaleTarget) {
+          this.#damageFinaleAdd(finaleTarget.id, next.damage);
+          if (this.#isResumeCountdownActive()) {
+            return;
+          }
+          continue;
+        }
+        const bossThreeTarget = this.#bossThreeSystem?.damageTargets.find(
+          (target) => this.#distance(next.position, target.position) <= next.radius + target.radius,
+        );
+        if (bossThreeTarget) {
+          this.#damageBossThree(bossThreeTarget.id, next.damage);
+          if (this.#state.phase === "finale-adds" || this.#state.phase === "cleared") {
+            return;
+          }
+          continue;
+        }
       } else if (this.#distance(next.position, this.#state.player.position) <= next.radius + 20) {
         this.#applyPlayerDamage(next.damage);
         continue;
@@ -523,6 +659,42 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  #damageBossThree(targetId: string, damage: number): void {
+    if (this.#bossThreeSystem === null) {
+      return;
+    }
+    const result = this.#bossThreeSystem.damageTarget(targetId, damage);
+    this.#state = { ...this.#state, boss: result.boss, activeHazards: this.#bossThreeSystem.activeHazards };
+    if (result.completed) {
+      this.#completeBossThreeBattle();
+      return;
+    }
+    if (result.finaleStarted) {
+      this.#state = {
+        ...this.#state,
+        phase: "finale-adds",
+        phaseBeforePause: "finale-adds",
+        projectiles: [],
+        activeHazards: [],
+      };
+      this.#bossThreeView?.destroy();
+      this.#bossThreeView = null;
+      this.#ensureFinaleAddsBattle();
+    }
+  }
+
+  #damageFinaleAdd(targetId: string, damage: number): void {
+    if (this.#finaleAddsSystem === null || this.#bossThreeSystem === null) {
+      return;
+    }
+    const result = this.#finaleAddsSystem.damageTarget(targetId, damage);
+    const boss = this.#bossThreeSystem.syncFinaleAdds(result.bossOne, result.bossTwo);
+    this.#state = { ...this.#state, boss, activeHazards: result.activeHazards };
+    if (result.completedNow) {
+      this.#beginResumeCountdown(result.bossOne, result.bossTwo);
+    }
+  }
+
   #stepBossOne(deltaMs: number): void {
     if (this.#bossOneSystem === null || this.#state.phase !== "boss1") {
       return;
@@ -558,6 +730,34 @@ export class GameScene extends Phaser.Scene {
       activeHazards: result.activeHazards,
       enemies: this.#enemySystem.enemies,
     };
+    for (const contact of result.contacts) {
+      this.#applyPlayerDamage(contact.damage);
+    }
+  }
+
+  #stepBossThree(deltaMs: number): void {
+    if (this.#bossThreeSystem === null || this.#state.phase !== "boss3") {
+      return;
+    }
+    const result = this.#bossThreeSystem.step(deltaMs, this.#state.player.position);
+    this.#state = {
+      ...this.#state,
+      boss: result.boss,
+      activeHazards: result.activeHazards,
+      projectiles: [...this.#state.projectiles, ...result.projectiles].slice(0, GAME_BALANCE.limits.projectiles),
+    };
+    for (const contact of result.contacts) {
+      this.#applyPlayerDamage(contact.damage);
+    }
+  }
+
+  #stepFinaleAdds(deltaMs: number): void {
+    if (this.#finaleAddsSystem === null || this.#bossThreeSystem === null || this.#state.phase !== "finale-adds") {
+      return;
+    }
+    const result = this.#finaleAddsSystem.step(deltaMs, this.#state.player.position);
+    const boss = this.#bossThreeSystem.syncFinaleAdds(result.bossOne, result.bossTwo);
+    this.#state = { ...this.#state, boss, activeHazards: result.activeHazards };
     for (const contact of result.contacts) {
       this.#applyPlayerDamage(contact.damage);
     }
@@ -604,6 +804,71 @@ export class GameScene extends Phaser.Scene {
     this.#bossTwoView = null;
   }
 
+  #beginResumeCountdown(bossOne: BossSnapshot & { kind: "boss1" }, bossTwo: BossSnapshot & { kind: "boss2" }): void {
+    if (this.#bossThreeSystem === null) {
+      return;
+    }
+    const boss = this.#bossThreeSystem.beginResumeCountdown(bossOne, bossTwo);
+    this.#state = { ...this.#state, boss, activeHazards: [], projectiles: [] };
+    this.#finaleAddsSystem = null;
+    this.#resumeCountdownDeadlineMs = null;
+    this.#bossOneView?.destroy();
+    this.#bossOneView = null;
+    this.#bossTwoView?.destroy();
+    this.#bossTwoView = null;
+    this.#clock.reset();
+  }
+
+  #isResumeCountdownActive(): boolean {
+    return (
+      this.#state.phase === "finale-adds" &&
+      this.#state.boss?.kind === "boss3" &&
+      this.#state.boss.resumeCountdownMs > 0
+    );
+  }
+
+  #updateResumeCountdown(nowMs: number): void {
+    if (this.#state.boss?.kind !== "boss3" || this.#bossThreeSystem === null) {
+      return;
+    }
+    this.#resumeCountdownDeadlineMs ??= nowMs + this.#state.boss.resumeCountdownMs;
+    const remainingMs = resumeCountdownRemaining(this.#resumeCountdownDeadlineMs, nowMs);
+    const boss = this.#bossThreeSystem.setResumeCountdown(remainingMs);
+    this.#state = { ...this.#state, boss };
+    if (remainingMs === 0) {
+      const resumedBoss = this.#bossThreeSystem.resumeAfterFinale();
+      this.#state = {
+        ...this.#state,
+        phase: "boss3",
+        phaseBeforePause: "boss3",
+        boss: resumedBoss,
+        activeHazards: [],
+        projectiles: [],
+      };
+      this.#resumeCountdownDeadlineMs = null;
+      this.#clock.reset();
+    }
+    this.#syncViews();
+    this.#publishViewState();
+  }
+
+  #completeBossThreeBattle(): void {
+    this.#state = {
+      ...this.#state,
+      phase: "cleared",
+      currentBossElapsedMs: 0,
+      bossTimesMs: [this.#state.bossTimesMs[0], this.#state.bossTimesMs[1], this.#state.currentBossElapsedMs],
+      boss: null,
+      activeHazards: this.#state.activeHazards.filter(
+        ({ kind }) => kind !== "boss3-edge" && kind !== "boss3-safe-zone",
+      ),
+      projectiles: [],
+    };
+    this.#bossThreeSystem = null;
+    this.#bossThreeView?.destroy();
+    this.#bossThreeView = null;
+  }
+
   #applyPlayerDamage(damage: number): void {
     const result = this.#playerSystem.takeDamage(damage);
     this.#state = { ...this.#state, player: result.player, hitCount: result.hitCount };
@@ -620,6 +885,8 @@ export class GameScene extends Phaser.Scene {
     this.#syncPickupViews();
     this.#syncBossOneViews();
     this.#syncBossTwoViews();
+    this.#syncBossThreeViews();
+    this.#syncFinaleAddsViews();
   }
 
   #syncEnemyViews(): void {
@@ -726,6 +993,32 @@ export class GameScene extends Phaser.Scene {
     this.#bossTwoView.sync(this.#state.boss, this.#state.activeHazards);
   }
 
+  #syncBossThreeViews(): void {
+    if (this.#bossThreeSystem === null || this.#state.boss?.kind !== "boss3" || this.#state.phase !== "boss3") {
+      return;
+    }
+    if (this.#bossThreeView === null) {
+      this.#bossThreeView = new BossThreeView(this, this.#state.boss, this.#state.seed);
+    }
+    this.#bossThreeView.sync(this.#state.boss, this.#state.activeHazards, this.#state.player.position);
+  }
+
+  #syncFinaleAddsViews(): void {
+    if (this.#finaleAddsSystem === null) {
+      return;
+    }
+    if (this.#bossOneView === null) {
+      this.#bossOneView = new BossOneView(this, this.#finaleAddsSystem.bossOne, this.#state.seed);
+    }
+    if (this.#bossTwoView === null) {
+      this.#bossTwoView = new BossTwoView(this, this.#finaleAddsSystem.bossTwo);
+    }
+    this.#bossOneView.sync(this.#finaleAddsSystem.bossOne, this.#state.activeHazards);
+    this.#bossTwoView.sync(this.#finaleAddsSystem.bossTwo, this.#state.activeHazards);
+    this.#bossOneView.object.setVisible(this.#finaleAddsSystem.bossOne.hp > 0);
+    this.#bossTwoView.object.setVisible(this.#finaleAddsSystem.bossTwo.stage !== "defeated");
+  }
+
   #rescueCitizenView(citizenUserId: string): void {
     const view = this.#citizenViews.get(citizenUserId);
     if (!view) {
@@ -751,6 +1044,8 @@ export class GameScene extends Phaser.Scene {
     this.#bossOneView = null;
     this.#bossTwoView?.destroy();
     this.#bossTwoView = null;
+    this.#bossThreeView?.destroy();
+    this.#bossThreeView = null;
     for (const view of this.#citizenViews.values()) {
       view.destroy();
     }
@@ -771,6 +1066,9 @@ export class GameScene extends Phaser.Scene {
       phase: this.#state.phase,
       bossHp: health.hp,
       bossMaxHp: health.maxHp,
+      resumeCountdownMs: this.#isResumeCountdownActive() && this.#state.boss?.kind === "boss3"
+        ? this.#state.boss.resumeCountdownMs
+        : null,
     };
     this.#options.bridge.publish(viewState);
   }

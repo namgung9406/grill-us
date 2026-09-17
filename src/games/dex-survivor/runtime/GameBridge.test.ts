@@ -14,6 +14,7 @@ function createViewState(overrides: Partial<GameViewState> = {}): GameViewState 
     phase: "normal",
     bossHp: null,
     bossMaxHp: null,
+    resumeCountdownMs: null,
     ...overrides,
   };
 }
@@ -52,6 +53,22 @@ describe("GameBridge", () => {
     vi.advanceTimersByTime(50);
     expect(listener).toHaveBeenCalledTimes(2);
     expect(bridge.getSnapshot().hp).toBe(96);
+  });
+
+  it("publishes an explicit nullable resume countdown", () => {
+    const bridge = new GameBridge(createViewState(), {
+      now: () => Date.now(),
+      setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+      clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    });
+
+    bridge.publish(createViewState({ phase: "finale-adds", resumeCountdownMs: 3000 }));
+    vi.advanceTimersByTime(50);
+    expect(bridge.getSnapshot().resumeCountdownMs).toBe(3000);
+
+    bridge.publish(createViewState({ phase: "boss3", resumeCountdownMs: null }));
+    vi.advanceTimersByTime(50);
+    expect(bridge.getSnapshot().resumeCountdownMs).toBeNull();
   });
 
   it("removes snapshot and command listeners and cancels pending publication", () => {
