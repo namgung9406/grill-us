@@ -45,5 +45,9 @@ export function parseClientEnv(env: ImportMetaEnv, mode: string): ClientEnv {
     throw new Error("운영 모드에서는 E2E 인증과 개발 리더보드를 활성화할 수 없습니다.");
   }
 
+  if (parsed.VITE_E2E_AUTH && mode !== "e2e") {
+    throw new Error("E2E 인증은 Playwright 전용 e2e 모드에서만 활성화할 수 있습니다.");
+  }
+
   return parsed;
 }

@@ -1,15 +1,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { MsalProvider } from "@azure/msal-react";
 
 import App from "./App";
-import { consumeReturnTo } from "./auth/ProtectedRoute";
-import { createMsalInstance, initializeMsal } from "./auth/msal";
 import { parseClientEnv } from "./env";
 import "./styles.css";
 
-const clientEnv = parseClientEnv(import.meta.env, import.meta.env.MODE);
-const msalInstance = createMsalInstance(clientEnv);
+parseClientEnv(import.meta.env, import.meta.env.MODE);
 
 const rootElement = document.getElementById("root");
 
@@ -18,22 +14,12 @@ if (rootElement === null) {
 }
 const appRootElement = rootElement;
 
-async function bootstrap() {
-  const account = await initializeMsal(msalInstance);
-  if (account !== null) {
-    const returnTo = consumeReturnTo();
-    if (returnTo !== null) {
-      window.history.replaceState(null, "", returnTo);
-    }
-  }
-
+function bootstrap() {
   createRoot(appRootElement).render(
     <StrictMode>
-      <MsalProvider instance={msalInstance}>
-        <App />
-      </MsalProvider>
+      <App />
     </StrictMode>,
   );
 }
 
-void bootstrap();
+bootstrap();

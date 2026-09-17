@@ -46,6 +46,16 @@ export interface GameSceneOptions {
   initialState: GameState;
   assets: GameProfileAssets;
   bridge: GameBridge;
+  onTestPort?: (port: GameSceneTestPort) => void;
+}
+
+export interface GameSceneTestPort {
+  getSnapshot: () => GameState;
+  advanceNormalTo: (targetElapsedMs: number) => void;
+  setBossHp: (hp: number) => void;
+  damageActiveBossPart: (amount: number) => void;
+  damagePlayer: (amount: number) => void;
+  completeCurrentBoss: () => void;
 }
 
 function cloneState(state: GameState): GameState {
@@ -125,6 +135,14 @@ export class GameScene extends Phaser.Scene {
     this.#ensureBossTwoBattle();
     this.#ensureBossThreeBattle();
     this.#ensureFinaleAddsBattle();
+    options.onTestPort?.({
+      getSnapshot: () => this.#testSnapshot(),
+      advanceNormalTo: (targetElapsedMs) => this.#testAdvanceNormalTo(targetElapsedMs),
+      setBossHp: (hp) => this.#testSetBossHp(hp),
+      damageActiveBossPart: (amount) => this.#testDamageActiveBossPart(amount),
+      damagePlayer: (amount) => this.#testDamagePlayer(amount),
+      completeCurrentBoss: () => this.#testCompleteCurrentBoss(),
+    });
   }
 
   public preload(): void {
@@ -248,6 +266,124 @@ export class GameScene extends Phaser.Scene {
     this.#clock.reset();
     this.#desktopInput?.reset();
     this.#touchInput?.reset();
+    this.#syncViews();
+    this.#publishViewState();
+  }
+
+  #testSnapshot(): GameState {
+    return cloneState({ ...this.#state, rngState: this.#random.state() });
+  }
+
+  #testAdvanceNormalTo(targetElapsedMs: number): void {
+    if (this.#state.phase !== "normal") {
+      throw new Error("normal phase에서만 시간을 전진할 수 있습니다.");
+    }
+    if (targetElapsedMs < this.#state.normalElapsedMs) {
+      throw new RangeError("목표 시간은 현재 시간보다 작을 수 없습니다.");
+    }
+
+    this.#state = advanceTimeline(this.#state, targetElapsedMs - this.#state.normalElapsedMs);
+    this.#ensureBossOneBattle();
+    this.#ensureBossTwoBattle();
+    this.#ensureBossThreeBattle();
+    this.#afterTestMutation();
+  }
+
+  #testSetBossHp(hp: number): void {
+    if (this.#bossOneSystem !== null) {
+      const target = this.#bossOneSystem.damageTargets.find(({ kind }) => kind === "body");
+      if (target === undefined || hp > this.#bossOneSystem.boss.hp) {
+        throw new RangeError("보스 체력은 현재 값보다 높일 수 없습니다.");
+      }
+      this.#damageBossOne(target.id, this.#bossOneSystem.boss.hp - hp);
+    } else if (this.#bossThreeSystem !== null && this.#state.phase === "boss3") {
+      const target = this.#bossThreeSystem.damageTargets[0];
+      if (target === undefined || hp > this.#bossThreeSystem.boss.hp) {
+        throw new RangeError("보스 체력은 현재 값보다 높일 수 없습니다.");
+      }
+      this.#damageBossThree(target.id, this.#bossThreeSystem.boss.hp - hp);
+    } else {
+      throw new Error("현재 phase는 단일 보스 체력을 지원하지 않습니다.");
+    }
+    this.#afterTestMutation();
+  }
+
+  #testDamageActiveBossPart(amount: number): void {
+    if (this.#bossOneSystem !== null) {
+      const target = this.#bossOneSystem.damageTargets.find(({ kind }) => kind === "tentacle")
+        ?? this.#bossOneSystem.damageTargets.find(({ kind }) => kind === "body");
+      if (target !== undefined) {
+        this.#damageBossOne(target.id, amount);
+      }
+    } else if (this.#bossTwoSystem !== null) {
+      const target = this.#bossTwoSystem.damageTargets.find(({ active }) => active);
+      if (target !== undefined) {
+        this.#damageBossTwo(target.id, amount);
+      }
+    } else if (this.#finaleAddsSystem !== null) {
+      const target = this.#finaleAddsSystem.damageTargets.find(({ active }) => active);
+      if (target !== undefined) {
+        this.#damageFinaleAdd(target.id, amount);
+      }
+    } else if (this.#bossThreeSystem !== null) {
+      const target = this.#bossThreeSystem.damageTargets[0];
+      if (target !== undefined) {
+        this.#damageBossThree(target.id, amount);
+      }
+    } else {
+      throw new Error("피해를 줄 활성 보스가 없습니다.");
+    }
+    this.#afterTestMutation();
+  }
+
+  #testDamagePlayer(amount: number): void {
+    if (this.#state.player.invulnerableRemainingMs > 0) {
+      const player = { ...this.#state.player, invulnerableRemainingMs: 0 };
+      this.#playerSystem.reset(player, this.#state.hitCount);
+      this.#state = { ...this.#state, player };
+    }
+    this.#applyPlayerDamage(amount);
+    if (this.#state.player.hp === 0) {
+      this.#state = { ...this.#state, phase: "defeated" };
+    }
+    this.#afterTestMutation();
+  }
+
+  #testCompleteCurrentBoss(): void {
+    if (this.#bossOneSystem !== null && this.#state.phase === "boss1") {
+      const target = this.#bossOneSystem.damageTargets.find(({ kind }) => kind === "body");
+      if (target !== undefined) {
+        this.#damageBossOne(target.id, Number.MAX_SAFE_INTEGER);
+      }
+    } else if (this.#bossTwoSystem !== null && this.#state.phase === "boss2") {
+      for (let index = 0; index < 8 && this.#bossTwoSystem !== null; index += 1) {
+        const target = this.#bossTwoSystem.damageTargets.find(({ active }) => active);
+        if (target === undefined) {
+          break;
+        }
+        this.#damageBossTwo(target.id, Number.MAX_SAFE_INTEGER);
+      }
+    } else if (this.#finaleAddsSystem !== null && this.#state.phase === "finale-adds") {
+      for (let index = 0; index < 16 && this.#finaleAddsSystem !== null; index += 1) {
+        const target = this.#finaleAddsSystem.damageTargets.find(({ active }) => active);
+        if (target === undefined) {
+          break;
+        }
+        this.#damageFinaleAdd(target.id, Number.MAX_SAFE_INTEGER);
+      }
+    } else if (this.#bossThreeSystem !== null && this.#state.phase === "boss3") {
+      const target = this.#bossThreeSystem.damageTargets[0];
+      if (target !== undefined) {
+        this.#damageBossThree(target.id, Number.MAX_SAFE_INTEGER);
+      }
+    } else {
+      throw new Error("완료할 활성 보스가 없습니다.");
+    }
+    this.#afterTestMutation();
+  }
+
+  #afterTestMutation(): void {
+    this.#state = { ...this.#state, rngState: this.#random.state() };
     this.#syncViews();
     this.#publishViewState();
   }

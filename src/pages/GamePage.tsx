@@ -8,9 +8,9 @@ import { GamePreparation } from "@/games/GamePreparation";
 import { getGameDefinition } from "@/games/registry";
 import { readSaveMetadata } from "@/games/saveMetadata";
 import type { GameLaunchProps, LaunchState } from "@/games/types";
-import { createGraphClient } from "@/graph/createGraphClient";
-import { GraphProfileService } from "@/graph/GraphProfileService";
+import { createProfileService } from "@/graph/createProfileService";
 import { gameProfileAssetsKey, useGameProfileAssets } from "@/graph/useGameProfileAssets";
+import { parseClientEnv } from "@/env";
 
 import { GameNotFoundPage } from "./GameNotFoundPage";
 
@@ -38,9 +38,10 @@ export function GamePage() {
   const launchAttempt = useRef(0);
   const startButtonRef = useRef<HTMLButtonElement>(null);
   const shouldRestoreFocus = useRef(false);
+  const env = useMemo(() => parseClientEnv(import.meta.env, import.meta.env.MODE), []);
   const service = useMemo(
-    () => new GraphProfileService(createGraphClient(acquireGraphToken)),
-    [acquireGraphToken],
+    () => createProfileService(env, acquireGraphToken),
+    [acquireGraphToken, env],
   );
   const saveMetadata = useMemo(
     () => (user === null ? null : readSaveMetadata(user.objectId)),

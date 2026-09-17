@@ -1,6 +1,6 @@
 # Task: T01 Browser Integration
 
-## Status: pending
+## Status: done
 
 ## Goal
 실제 Entra 비밀이나 사용자 계정 없이도 production에 포함될 수 없는 test-only 인증·Graph fixture로 Home부터 게임 저장·종료·리더보드까지의 핵심 브라우저 흐름을 반복 검증한다.
@@ -14,13 +14,16 @@
 ### I01. E2E 인증·Graph fixture 경계
 - Related Files:
   - `src/auth/createAuthAdapter.ts` :: `createAuthAdapter` — real/test dynamic selection; new
+  - `src/main.tsx` :: application bootstrap — real MSAL bootstrap를 auth adapter 경계로 교체; modify
   - `src/auth/AuthProvider.tsx` :: `AuthProvider` — `createAuthAdapter(clientEnv)` 결과만 소비; modify
   - `src/test-support/E2eAuthAdapter.ts` :: `E2eAuthAdapter` — 고정 oid/name/email과 token; new
   - `src/graph/createProfileService.ts` :: `createProfileService` — real/test Graph service dynamic selection; new
+  - `src/pages/GamePage.tsx` :: `GamePage` — profile service factory 사용; modify
   - `src/graph/useGameProfileAssets.ts` :: `useGameProfileAssets` — factory가 반환한 service 주입; modify
   - `src/test-support/E2eGraphProfileService.ts` :: `E2eGraphProfileService` — player/citizen bitmap fixtures; new
   - `src/games/dex-survivor/DexSurvivorGame.tsx` :: `DexSurvivorGame` — E2E mode에서 bridge adapter 설치·해제; modify
   - `src/games/dex-survivor/runtime/createGame.ts` :: `createDexSurvivorGame` — 선택적 test bridge port 주입; modify
+  - `src/games/dex-survivor/runtime/GameScene.ts` :: `GameScene` — private simulation을 typed test port에 연결; modify
   - `src/test-support/E2eGameBridge.ts` :: `E2eGameBridge` — 상태 조회·시간/피해 명령; new
   - `src/env.ts` :: `E2E production rejection` — test bridge까지 단일 flag로 보호; modify
 
@@ -69,10 +72,10 @@
 - test bridge command는 schema로 검증하고 임의 함수 실행이나 DOM HTML 주입을 제공하지 않는다.
 
 ## Acceptance Criteria
-- [ ] Desktop과 Pixel 7 프로젝트에서 인증·게임·저장·보스·리더보드 핵심 흐름이 통과한다.
-- [ ] E2E 중 Microsoft 로그인/Graph 외부 요청과 실제 사진 사용이 없다.
-- [ ] production mode에서 test adapter와 global bridge를 활성화하거나 번들에 포함할 수 없다.
-- [ ] 캔버스가 nonblank이고 typed state와 사용자 화면이 함께 검증된다.
+- [x] Desktop과 Pixel 7 프로젝트에서 인증·게임·저장·보스·리더보드 핵심 흐름이 통과한다.
+- [x] E2E 중 Microsoft 로그인/Graph 외부 요청과 실제 사진 사용이 없다.
+- [x] production mode에서 test adapter와 global bridge를 활성화하거나 번들에 포함할 수 없다.
+- [x] 캔버스가 nonblank이고 typed state와 사용자 화면이 함께 검증된다.
 
 ## Validation
 - `npm run test -- src/auth/createAuthAdapter.test.ts` — test-only 경계 통과
@@ -92,6 +95,6 @@ Task: T01-browser-integration
 ```
 
 ## Progress
-- [ ] 구현 완료
-- [ ] 검증 통과
+- [x] 구현 완료
+- [x] 검증 통과
 - commit: pending

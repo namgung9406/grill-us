@@ -1,110 +1,106 @@
 import {
-  InteractionStatus,
-  type AccountInfo,
-  type RedirectRequest,
-} from "@azure/msal-browser";
-import { useMsal } from "@azure/msal-react";
-import {
   createContext,
   type PropsWithChildren,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
 
 import { parseClientEnv } from "@/env";
 
-import {
-  apiTokenRequest,
-  AUTH_ERROR_KEY,
-  graphTokenRequest,
-  isInteractionRequired,
-  LeaderboardDisabledError,
-  loginRequest,
-  TokenRedirectStartedError,
-} from "./msal";
-import type { AuthContextValue, AuthenticatedUser } from "./types";
+import { createAuthAdapter, type AuthAdapter } from "./createAuthAdapter";
+import { AUTH_ERROR_KEY } from "./msal";
+import { consumeReturnTo } from "./ProtectedRoute";
+import type { AuthContextValue } from "./types";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function toAuthenticatedUser(account: AccountInfo): AuthenticatedUser {
-  const emailClaim = account.idTokenClaims?.email ?? account.idTokenClaims?.preferred_username;
-  const email = typeof emailClaim === "string" ? emailClaim : null;
-
-  return {
-    objectId: account.localAccountId,
-    displayName: account.name ?? account.username,
-    email,
-  };
-}
-
 export function AuthProvider({ children }: PropsWithChildren) {
-  const { accounts, inProgress, instance } = useMsal();
+  const env = useMemo(() => parseClientEnv(import.meta.env, import.meta.env.MODE), []);
+  const [retryKey, setRetryKey] = useState(0);
+  const adapterPromise = useMemo(() => createAuthAdapter(env), [env, retryKey]);
+  const [adapter, setAdapter] = useState<AuthAdapter | null>(null);
+  const [user, setUser] = useState<AuthContextValue["user"]>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(() => {
     const storedError = sessionStorage.getItem(AUTH_ERROR_KEY);
     sessionStorage.removeItem(AUTH_ERROR_KEY);
     return storedError;
   });
-  const account = instance.getActiveAccount() ?? accounts[0] ?? null;
-  const env = useMemo(() => parseClientEnv(import.meta.env, import.meta.env.MODE), []);
 
-  const runTokenRequest = useCallback(
-    async (request: RedirectRequest): Promise<string> => {
-      if (account === null) {
-        await instance.loginRedirect(loginRequest);
-        throw new TokenRedirectStartedError();
-      }
+  useEffect(() => {
+    let active = true;
+    setAdapter(null);
 
-      try {
-        const result = await instance.acquireTokenSilent({ ...request, account });
-        return result.accessToken;
-      } catch (error) {
-        if (error instanceof Error && isInteractionRequired(error)) {
-          await instance.acquireTokenRedirect({ ...request, account });
-          throw new TokenRedirectStartedError();
+    void adapterPromise
+      .then(async (nextAdapter) => {
+        const nextUser = await nextAdapter.initialize();
+        if (!active) {
+          return;
         }
-        throw error;
-      }
-    },
-    [account, instance],
-  );
+        setAdapter(nextAdapter);
+        setUser(nextUser);
+        if (nextUser !== null) {
+          const returnTo = consumeReturnTo();
+          if (returnTo !== null) {
+            window.history.replaceState(null, "", returnTo);
+          }
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setErrorMessage("로그인 처리에 실패했습니다. 다시 시도해주세요.");
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [adapterPromise]);
 
   const login = useCallback(
     async () => {
       setErrorMessage(null);
       try {
-        await instance.loginRedirect(loginRequest);
+        if (adapter === null) {
+          throw new Error("인증 초기화가 완료되지 않았습니다.");
+        }
+        await adapter.login();
+        const nextUser = adapter.getUser();
+        setUser(nextUser);
+        if (nextUser !== null) {
+          const returnTo = consumeReturnTo();
+          if (returnTo !== null) {
+            window.history.replaceState(null, "", returnTo);
+          }
+        }
       } catch {
         setErrorMessage("로그인을 시작하지 못했습니다. 다시 시도해주세요.");
       }
     },
-    [instance],
+    [adapter],
   );
 
   const logout = useCallback(async () => {
     setErrorMessage(null);
     try {
-      await instance.logoutRedirect({ account });
+      if (adapter === null) {
+        throw new Error("인증 초기화가 완료되지 않았습니다.");
+      }
+      await adapter.logout();
+      setUser(adapter.getUser());
     } catch {
       setErrorMessage("로그아웃을 시작하지 못했습니다. 다시 시도해주세요.");
     }
-  }, [account, instance]);
-
-  const acquireApiToken = useCallback(() => {
-    if (!env.VITE_LEADERBOARD_ENABLED) {
-      return Promise.reject(new LeaderboardDisabledError());
-    }
-    return runTokenRequest(apiTokenRequest(env));
-  }, [env, runTokenRequest]);
+  }, [adapter]);
 
   const value = useMemo<AuthContextValue>(() => {
-    const user = account === null ? null : toAuthenticatedUser(account);
     const status =
-      inProgress !== InteractionStatus.None
-        ? "loading"
-        : errorMessage !== null
-          ? "error"
+      errorMessage !== null
+        ? "error"
+        : adapter === null
+          ? "loading"
           : user === null
             ? "anonymous"
             : "authenticated";
@@ -115,13 +111,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
       errorMessage,
       login,
       logout,
-      acquireGraphToken: () => runTokenRequest(graphTokenRequest),
-      acquireApiToken,
+      acquireGraphToken: () =>
+        adapter === null
+          ? Promise.reject(new Error("인증 초기화가 완료되지 않았습니다."))
+          : adapter.acquireGraphToken(),
+      acquireApiToken: () =>
+        adapter === null
+          ? Promise.reject(new Error("인증 초기화가 완료되지 않았습니다."))
+          : adapter.acquireApiToken(),
       retry: () => {
         setErrorMessage(null);
+        setRetryKey((current) => current + 1);
       },
     };
-  }, [account, acquireApiToken, errorMessage, inProgress, login, logout, runTokenRequest]);
+  }, [adapter, errorMessage, login, logout, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

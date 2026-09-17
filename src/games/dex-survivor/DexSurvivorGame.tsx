@@ -9,7 +9,7 @@ import { GameSaveStore } from "./persistence/GameSaveStore";
 import { PendingResultStore } from "./persistence/PendingResultStore";
 import { createDexSurvivorGame } from "./runtime/createGame";
 import { GameBridge, type GameViewState } from "./runtime/GameBridge";
-import type { GameScene } from "./runtime/GameScene";
+import type { GameScene, GameSceneTestPort } from "./runtime/GameScene";
 import { GameHud } from "./ui/GameHud";
 import { PauseOverlay } from "./ui/PauseOverlay";
 import { RestartDialog } from "./ui/RestartDialog";
@@ -135,13 +135,25 @@ export default function DexSurvivorGame({ profileAssets, ownerObjectId, onExit }
       return;
     }
 
+    let testPort: GameSceneTestPort | null = null;
+    const sceneCapture: { current: GameScene | null } = { current: null };
     const game = createDexSurvivorGame({
       parent,
       initialState: launch.initialState,
       assets: profileAssets,
       bridge: launch.bridge,
+      onScene: (scene) => {
+        sceneCapture.current = scene;
+      },
+      onTestPort: (port) => {
+        testPort = port;
+      },
     });
-    const scene = game.scene.getScene("DexSurvivorGameScene") as GameScene;
+    const scene = sceneCapture.current ?? game.scene.getScene("DexSurvivorGameScene") as GameScene | null;
+    if (scene === null) {
+      game.destroy(true);
+      return;
+    }
     sceneRef.current = scene;
     const autoSave = new AutoSaveController({
       exportSnapshot: () => scene.exportSnapshot(),
@@ -153,6 +165,21 @@ export default function DexSurvivorGame({ profileAssets, ownerObjectId, onExit }
       },
     });
     autoSaveRef.current = autoSave;
+    let uninstallE2eBridge: (() => void) | null = null;
+    if (import.meta.env.MODE === "e2e" && import.meta.env.VITE_E2E_AUTH === "true") {
+      void import("@/test-support/E2eGameBridge").then(({ E2eGameBridge }) => {
+        if (destroyed || testPort === null) {
+          return;
+        }
+        uninstallE2eBridge = E2eGameBridge.install({
+          ...testPort,
+          flushSave: () => {
+            autoSave.markDirty();
+            return autoSave.flush();
+          },
+        });
+      });
+    }
 
     const completeRun = (outcome: RunOutcome): void => {
       const snapshot = scene.exportSnapshot();
@@ -216,6 +243,7 @@ export default function DexSurvivorGame({ profileAssets, ownerObjectId, onExit }
 
     let destroyed = false;
     return () => {
+      uninstallE2eBridge?.();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pagehide", pauseAndFlush);
       window.removeEventListener("beforeunload", pauseAndFlush);

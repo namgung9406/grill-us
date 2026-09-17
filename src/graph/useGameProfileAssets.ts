@@ -3,11 +3,11 @@ import { useEffect, useRef } from "react";
 
 import type { AuthenticatedUser } from "@/auth/types";
 
-import type { GraphProfileService } from "./GraphProfileService";
+import type { ProfileService } from "./createProfileService";
 import type { GameProfileAssets } from "./types";
 
 interface UseGameProfileAssetsOptions {
-  service: GraphProfileService;
+  service: ProfileService;
   player: AuthenticatedUser | null;
   preferredCitizenIds?: readonly string[];
   enabled: boolean;
