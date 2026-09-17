@@ -14,8 +14,8 @@ Vite + React + TypeScript 기반 SPA에 단일 테넌트 Microsoft Entra ID 인�
 | :--- | :--- | :--- | :--- |
 | P01 | `done` | Vite 도구체인, Entra 인증, 보호 라우팅, Graph 프로필 준비 | [P01](../phases/2026-09-17-grill-us-entra-dex-survivor/P01-app-auth-foundation/phase.md) |
 | P02 | `done` | 결정론적 게임 규칙, Phaser 전투, 보스 3종, 저장·복원 | [P02](../phases/2026-09-17-grill-us-entra-dex-survivor/P02-dex-survivor-game/phase.md) |
-| P03 | `in_progress` | Entra JWT 검증, SQLite API, Top 10 UI와 제출 재시도 | [P03](../phases/2026-09-17-grill-us-entra-dex-survivor/P03-leaderboard/phase.md) |
-| P04 | `pending` | Playwright 통합, 접근성·반응형·성능·운영 경계 검증 | [P04](../phases/2026-09-17-grill-us-entra-dex-survivor/P04-integration-quality/phase.md) |
+| P03 | `done` | Entra JWT 검증, SQLite API, Top 10 UI와 제출 재시도 | [P03](../phases/2026-09-17-grill-us-entra-dex-survivor/P03-leaderboard/phase.md) |
+| P04 | `in_progress` | Playwright 통합, 접근성·반응형·성능·운영 경계 검증 | [P04](../phases/2026-09-17-grill-us-entra-dex-survivor/P04-integration-quality/phase.md) |
 
 ## Cross-Phase Invariants
 - Microsoft Graph 토큰과 Express API 토큰은 scope와 audience가 다른 별도 토큰으로 취급한다.

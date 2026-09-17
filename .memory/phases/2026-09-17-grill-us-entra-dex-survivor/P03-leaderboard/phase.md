@@ -8,7 +8,7 @@ Express API가 Entra 커스텀 scope 토큰을 검증하고 완결된 결과만 
 | :--- | :--- | :--- | :--- |
 | T01 | `done ✅` | Express 서버, 환경 검증, Entra JWT 인증과 SQLite 스키마 구축 | [T01](./T01-api-auth-storage.md) |
 | T02 | `done ✅` | 결과 재계산·타당성·빈도 제한과 Top 10 API 구현 | [T02](./T02-leaderboard-endpoints.md) |
-| T03 | `in_progress 🔵` | 리더보드 화면, API 토큰, 제출 큐·계정별 재시도 구현 | [T03](./T03-leaderboard-client.md) |
+| T03 | `done ✅` | 리더보드 화면, API 토큰, 제출 큐·계정별 재시도 구현 | [T03](./T03-leaderboard-client.md) |
 
 ## Progress
-- done: 2/3 (active: T03)
+- done: 3/3 (complete)

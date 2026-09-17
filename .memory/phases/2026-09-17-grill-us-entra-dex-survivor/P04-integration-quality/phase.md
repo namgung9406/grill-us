@@ -6,8 +6,8 @@
 ## Tasks
 | Task | Status | Summary | Blueprint |
 | :--- | :--- | :--- | :--- |
-| T01 | `pending` | Playwright 인증 fixture와 핵심 게임·리더보드 E2E 흐름 구현 | [T01](./T01-browser-integration.md) |
+| T01 | `in_progress 🔵` | Playwright 인증 fixture와 핵심 게임·리더보드 E2E 흐름 구현 | [T01](./T01-browser-integration.md) |
 | T02 | `pending` | 접근성·모바일·성능·운영 비활성화와 문서 최종 검증 | [T02](./T02-release-hardening.md) |
 
 ## Progress
-- done: 0/2 (active: pending until P03 complete)
+- done: 0/2 (active: T01)
